@@ -46,6 +46,16 @@ export interface LeaderboardEntry {
   avatarUrl?: string | null;
   score: number;
   rank: number;
+  /**
+   * `true` when this entry is the player calling the API (resolved from
+   * the `externalId` passed via `includeSelf`). Render "You" badges or
+   * highlight rows off this rather than matching `participantId` to the
+   * external id yourself — that comparison fails because the server
+   * surfaces the internal player UUID, not the external one. Always
+   * `false` on entries without a self-context request, and on bot
+   * entries regardless.
+   */
+  isSelf: boolean;
 }
 
 export interface Leaderboard {
