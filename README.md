@@ -1,27 +1,36 @@
 # @kraty/sdk
 
-TypeScript SDK for the Kraty game-events platform. Targets the public
-[`/sdk/v1`](../../docs/13-rest-api.md) surface: events, leaderboards,
-grants, crates.
+TypeScript / JavaScript **client** SDK for the [Kraty](https://kraty.io)
+game-events platform. Use it from your web game, browser frontend, or
+React Native app. Targets the public `/sdk/v1` surface — events,
+leaderboards, lobbies, grants, inventory, wallet.
+
+> 📖 **Full reference + examples:** <https://kraty.io/docs/sdks/typescript>
+>
+> The docs site has the complete guide — quickstart, every method,
+> error handling, SSE leaderboard streaming, polling helpers. This
+> README is just enough to get started.
 
 This is the **reference SDK** — patterns established here (idempotency
 keys auto-generated on retry, exponential backoff with jitter, adaptive
-polling helpers, sealed error codes) are mirrored by the future Unity
-(C#) and Godot SDKs.
+polling helpers, sealed error codes) are mirrored by the Unity (C#) and
+Flutter SDKs.
 
 ## Install
 
-The package isn't published to npm yet — consume it via the pnpm
-workspace:
+The package isn't on npm yet — install directly from the public GitHub
+repo against a tagged release. Each release ships compiled `dist/`
+artefacts so no build step is needed on your side.
 
-```jsonc
-// package.json of a sibling package or app
-{
-  "dependencies": {
-    "@kraty/sdk": "workspace:*"
-  }
-}
+```sh
+npm install github:PedroTrincheiras/kraty-sdk-typescript#v0.1.0
+# or with pnpm:
+pnpm add github:PedroTrincheiras/kraty-sdk-typescript#v0.1.0
 ```
+
+Browse releases at
+<https://github.com/PedroTrincheiras/kraty-sdk-typescript/releases>.
+Once we publish to npm (v1.0) you'll be able to swap to `pnpm add @kraty/sdk`.
 
 For a future published version: `pnpm add @kraty/sdk`.
 

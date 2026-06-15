@@ -3,6 +3,7 @@ import { KratyApiError } from './errors.js';
 import {
   openLeaderboardStream,
   type LeaderboardStream,
+  type LeaderboardStreamEvent,
 } from './leaderboard-stream.js';
 import type {
   Catalog,
@@ -282,6 +283,10 @@ export class LeaderboardsClient {
    * Does NOT auto-reconnect on transport drop — the iterable throws
    * `KratyNetworkError` and you re-call `live(...)` after a backoff
    * if you want resumption.
+   *
+   * Low-level — prefer `subscribe(...)` for game UIs (callback-style,
+   * polls in the background so bot scores update even if no human
+   * action would otherwise trigger a server-side read).
    */
   live(leaderboardId: string): Promise<LeaderboardStream> {
     return openLeaderboardStream({
@@ -292,6 +297,138 @@ export class LeaderboardsClient {
       playerSecret: this.client.playerSecret,
       sdkUserAgent: this.client.sdkUserAgent,
     });
+  }
+
+  /**
+   * High-level live leaderboard subscription. Composes:
+   *
+   *  1. the SSE stream from `live()` (real-time push for player + bot
+   *     score updates the server has published), AND
+   *  2. a periodic background `read()` poll that nudges the server's
+   *     lazy bot evaluator to advance bot scores, then dedupes the
+   *     resulting deltas against the SSE feed.
+   *
+   * Why both: bot scores climb on a schedule even when no player
+   * action triggers a read. Without the background poll, idle UIs
+   * never see bots tick. The SSE stream then carries the resulting
+   * `score_update` events (the backend publishes deltas on every lazy
+   * eval) so multiple subscribers per leaderboard share one fan-out.
+   *
+   * Callback fires for every event from either source, deduped so the
+   * same `(participantId, score)` doesn't surface twice. Returns a
+   * handle whose `close()` tears down both transports.
+   *
+   * @param leaderboardId  The leaderboard to subscribe to.
+   * @param onEvent        Fired for every `LeaderboardStreamEvent`.
+   * @param opts.pollIntervalMs  Background read cadence. Default 15_000.
+   *                              Set to 0 to disable polling (SSE-only).
+   * @param opts.onError   Optional — receives transport / parse errors.
+   *                       SSE errors are non-fatal; the poll keeps running.
+   */
+  subscribe(
+    leaderboardId: string,
+    onEvent: (event: LeaderboardStreamEvent) => void,
+    opts: {
+      pollIntervalMs?: number;
+      onError?: (err: unknown) => void;
+    } = {},
+  ): { close: () => Promise<void> } {
+    const pollIntervalMs = opts.pollIntervalMs ?? 15_000;
+    const onError = opts.onError ?? (() => undefined);
+
+    // Track the last score we surfaced for each participant so we can
+    // suppress duplicates when SSE and a poll happen to deliver the
+    // same delta. Players who replay the same score get suppressed too,
+    // which matches what game UIs want (no re-render churn).
+    const lastSurfacedScore = new Map<string, number>();
+    let closed = false;
+    let streamHandle: LeaderboardStream | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const surface = (event: LeaderboardStreamEvent): void => {
+      if (closed) return;
+      // For score_update events, dedupe by (participantId, score). Other
+      // event kinds (ready, closed, parse-error) always pass through.
+      if (event.kind === 'score_update') {
+        const pid = String(event.data['participantId'] ?? '');
+        const score = Number(event.data['score']);
+        if (pid && Number.isFinite(score)) {
+          const prior = lastSurfacedScore.get(pid);
+          if (prior === score) return;
+          lastSurfacedScore.set(pid, score);
+        }
+      }
+      try {
+        onEvent(event);
+      } catch (err) {
+        try { onError(err); } catch { /* swallow */ }
+      }
+    };
+
+    const consumeSse = async (): Promise<void> => {
+      try {
+        streamHandle = await this.live(leaderboardId);
+      } catch (err) {
+        try { onError(err); } catch { /* swallow */ }
+        return;
+      }
+      try {
+        for await (const ev of streamHandle.events) {
+          surface(ev);
+        }
+      } catch (err) {
+        if (!closed) {
+          try { onError(err); } catch { /* swallow */ }
+        }
+      }
+    };
+
+    const consumePollOnce = async (): Promise<void> => {
+      if (closed) return;
+      try {
+        const lb = await this.read(leaderboardId);
+        for (const entry of lb.entries) {
+          surface({
+            kind: 'score_update',
+            data: {
+              leaderboardId: lb.leaderboardId,
+              participantId: entry.participantId,
+              score: entry.score,
+              rank: entry.rank,
+            },
+          });
+        }
+      } catch (err) {
+        try { onError(err); } catch { /* swallow */ }
+      }
+    };
+
+    const schedulePoll = (): void => {
+      if (closed || pollIntervalMs <= 0) return;
+      pollTimer = setTimeout(async () => {
+        await consumePollOnce();
+        schedulePoll();
+      }, pollIntervalMs);
+    };
+
+    // Kick off both transports in parallel. Poll fires once immediately
+    // so the first frame of the UI lands with current scores; SSE wires
+    // up alongside for low-latency real-time pushes.
+    void consumeSse();
+    if (pollIntervalMs > 0) {
+      void consumePollOnce().then(schedulePoll);
+    }
+
+    return {
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        if (pollTimer) clearTimeout(pollTimer);
+        if (streamHandle) {
+          try { await streamHandle.close(); } catch { /* swallow */ }
+        }
+      },
+    };
   }
 }
 

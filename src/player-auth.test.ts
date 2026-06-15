@@ -590,3 +590,152 @@ describe('Active player id default (Option B ergonomics)', () => {
     expect(k.client.playerSecret).toBe('new-secret');
   });
 });
+
+/**
+ * Deploy-gate guarantee: persistent sessions across instances.
+ *
+ * The user contract we ship is "the SDK persists the player
+ * identity so subsequent launches reuse it without re-registering."
+ * Each scenario below simulates app-close-and-relaunch by destroying
+ * the first `Kraty` instance and constructing a second one that
+ * shares the same SecretStore, then asserts NO register call fires
+ * on the second instance's first player-scoped call.
+ *
+ * Same contract is covered in Flutter (`resources_test.dart`) and
+ * Unity (`PlayerAuthAndResourcesTests.cs`). These three suites are
+ * the canonical lazy-identity guarantees the deploy depends on.
+ */
+describe('Persisted session — resume across instances', () => {
+  it('a second Kraty sharing the same SecretStore resumes the persisted identity without re-registering', async () => {
+    // Launch #1: lazy-register Alice, persist the secret in `store`.
+    const { fetch: fetch1, calls: calls1 } = makeFetch([
+      () => jsonRes(201, { data: { secret: 'alice-secret' } }),
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const store = new InMemorySecretStore();
+    const k1 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch1,
+      secretStore: store,
+      activeExternalPlayerId: 'alice',
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k1.grants.listPending();
+    expect(calls1[0]?.url).toContain('/players/alice/register');
+    expect(calls1[1]?.url).toContain('/players/alice/pending-grants');
+
+    // Launch #2: brand-new Kraty instance, same store. No
+    // `activeExternalPlayerId` plumbed — the SDK must read it back
+    // from the persisted active-id marker.
+    const { fetch: fetch2, calls: calls2 } = makeFetch([
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const k2 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch2,
+      secretStore: store,
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k2.grants.listPending();
+    // Critically: NO register call on instance #2 — only the
+    // pending-grants. The persisted secret + active id resumed
+    // transparently.
+    expect(calls2.length).toBe(1);
+    expect(calls2[0]?.url).toContain('/players/alice/pending-grants');
+    expect(calls2[0]?.headers['x-player-secret']).toBe('alice-secret');
+    expect(k2.activeExternalPlayerId).toBe('alice');
+  });
+
+  it('logout invalidates the persisted resume — the next instance registers a fresh kp_ player', async () => {
+    // Launch #1: auto-register a kp_ player.
+    const { fetch: fetch1 } = makeFetch([
+      () => jsonRes(201, { data: { secret: 'first-secret' } }),
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const store = new InMemorySecretStore();
+    const k1 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch1,
+      secretStore: store,
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k1.grants.listPending();
+    const firstId = k1.activeExternalPlayerId!;
+    expect(firstId).toMatch(/^kp_/);
+
+    // User taps "sign out" — wipes the persisted active marker +
+    // secret.
+    await k1.logout();
+    expect(await store.read(firstId)).toBeNull();
+
+    // Launch #2: same store but it's now empty. A fresh
+    // pending-grants call must trigger a NEW register with a
+    // different id.
+    const { fetch: fetch2, calls: calls2 } = makeFetch([
+      () => jsonRes(201, { data: { secret: 'second-secret' } }),
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const k2 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch2,
+      secretStore: store,
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k2.grants.listPending();
+    expect(calls2[0]?.url).toMatch(/\/players\/kp_[A-Za-z0-9_-]+\/register$/);
+    expect(k2.activeExternalPlayerId).not.toBe(firstId);
+    expect(k2.activeExternalPlayerId).toMatch(/^kp_/);
+  });
+
+  it('signIn-installed identity is persisted so the next instance resumes without HTTP', async () => {
+    // Device-link flow: your backend hands the SDK a server-issued
+    // (externalPlayerId, secret) pair. `signIn()` persists it. A
+    // later instance with the same store must reuse it.
+    const { fetch: fetch1, calls: calls1 } = makeFetch([
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const store = new InMemorySecretStore();
+    const k1 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch1,
+      secretStore: store,
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k1.signIn({
+      externalPlayerId: 'device_link_bob',
+      secret: 'server-issued-secret',
+    });
+    await k1.grants.listPending();
+    expect(calls1[0]?.url).toContain('/players/device_link_bob/pending-grants');
+    expect(calls1[0]?.headers['x-player-secret']).toBe('server-issued-secret');
+
+    // Launch #2: SAME store. No constructor identity. Must resume
+    // device_link_bob without an HTTP register.
+    const { fetch: fetch2, calls: calls2 } = makeFetch([
+      () => jsonRes(200, { data: [] }),
+    ]);
+    const k2 = new Kraty({
+      apiKey: 'pUUVdrM8.djr4-0Iv9h1JvVNSMZNDmSsSN7lSVq2F9dG6DG4A5uQ',
+      baseUrl: 'https://api.test.kraty.io',
+      fetch: fetch2,
+      secretStore: store,
+      generateIdempotencyKey: deterministicKey,
+      retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
+    });
+    await k2.grants.listPending();
+    expect(calls2.length).toBe(1);
+    expect(calls2[0]?.url).toContain('/players/device_link_bob/pending-grants');
+    expect(calls2[0]?.headers['x-player-secret']).toBe('server-issued-secret');
+    expect(k2.activeExternalPlayerId).toBe('device_link_bob');
+  });
+});
