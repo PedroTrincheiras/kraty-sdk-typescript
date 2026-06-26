@@ -129,7 +129,7 @@ export class EventsClient {
 }
 
 /**
- * Resource client for `/sdk/v1/shared-leaderboards/:key` — the
+ * Resource client for `/sdk/v1/leaderboards/:key` — the
  * dashboard-configured cross-event leaderboards. Addressed by the
  * game-scoped `key` (e.g. `"weekly_global"`). For the auto-created
  * per-event-window boards addressed by UUID, see {@link EventLeaderboardsClient}.
@@ -138,7 +138,7 @@ export class LeaderboardsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/shared-leaderboards/:key — snapshot read of a
+   * GET /sdk/v1/leaderboards/:key — snapshot read of a
    * dashboard-configured cross-event leaderboard.
    *
    * For segmented boards, you MUST pass the same `segment` value your
@@ -162,14 +162,14 @@ export class LeaderboardsClient {
     }
     const qs = params.toString();
     const path = qs
-      ? `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}?${qs}`
-      : `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}`;
+      ? `/sdk/v1/leaderboards/${encodeURIComponent(key)}?${qs}`
+      : `/sdk/v1/leaderboards/${encodeURIComponent(key)}`;
     const env = await this.client.request<DataEnvelope<Leaderboard>>('GET', path);
     return env.data;
   }
 
   /**
-   * GET /sdk/v1/shared-leaderboards/:key/periods
+   * GET /sdk/v1/leaderboards/:key/periods
    *
    * Lists the available snapshot periods (newest first). Useful when
    * the UI offers "this week", "last week", "two weeks ago" — pick a
@@ -180,15 +180,15 @@ export class LeaderboardsClient {
     if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
     const qs = params.toString();
     const path = qs
-      ? `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}/periods?${qs}`
-      : `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}/periods`;
+      ? `/sdk/v1/leaderboards/${encodeURIComponent(key)}/periods?${qs}`
+      : `/sdk/v1/leaderboards/${encodeURIComponent(key)}/periods`;
     const env = await this.client.request<DataEnvelope<LeaderboardPeriods>>('GET', path);
     return env.data;
   }
 }
 
 /**
- * Resource client for `/sdk/v1/leaderboards/:id` — the auto-generated
+ * Resource client for `/sdk/v1/event-leaderboards/:id` — the auto-generated
  * per-event-window leaderboard, addressed by the UUID
  * `events.start(...)` returns in `attempt.leaderboardId`. Includes
  * Server-Sent-Events live streaming. For the dashboard-configured
@@ -198,7 +198,7 @@ export class EventLeaderboardsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/leaderboards/:id — top `limit` entries for one event
+   * GET /sdk/v1/event-leaderboards/:id — top `limit` entries for one event
    * window's leaderboard. Pass `includeSelf: true` + `externalId` to
    * also receive the caller's rank/score.
    */
@@ -219,14 +219,14 @@ export class EventLeaderboardsClient {
     }
     const qs = params.toString();
     const path = qs
-      ? `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}?${qs}`
-      : `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}`;
+      ? `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}?${qs}`
+      : `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}`;
     const env = await this.client.request<DataEnvelope<EventLeaderboard>>('GET', path);
     return env.data;
   }
 
   /**
-   * GET /sdk/v1/leaderboards/:id/stream — opens a Server-Sent Events
+   * GET /sdk/v1/event-leaderboards/:id/stream — opens a Server-Sent Events
    * subscription that pushes score updates in real time. Returns a
    * `LeaderboardStream` handle whose `events` async-iterable yields
    * each parsed event (`ready`, `score_update`, `closed`).

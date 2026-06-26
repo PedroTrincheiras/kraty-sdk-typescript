@@ -52,7 +52,7 @@ interface OpenArgs {
  * each parsed event. Does NOT auto-reconnect.
  */
 export async function openLeaderboardStream(args: OpenArgs): Promise<LeaderboardStream> {
-  const url = `${args.baseUrl}/sdk/v1/leaderboards/${encodeURIComponent(args.leaderboardId)}/stream`;
+  const url = `${args.baseUrl}/sdk/v1/event-leaderboards/${encodeURIComponent(args.leaderboardId)}/stream`;
   const controller = new AbortController();
 
   let response: Response;

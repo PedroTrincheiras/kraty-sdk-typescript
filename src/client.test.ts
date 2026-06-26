@@ -102,7 +102,7 @@ describe('KratyClient — request layer', () => {
         }),
     ]);
     const c = new KratyClient(baseOpts(fetch));
-    await expect(c.request('GET', '/sdk/v1/leaderboards/missing')).rejects.toMatchObject({
+    await expect(c.request('GET', '/sdk/v1/event-leaderboards/missing')).rejects.toMatchObject({
       name: 'KratyApiError',
       status: 404,
       code: 'not_found',
@@ -221,7 +221,7 @@ describe('Kraty facade', () => {
     const k = new Kraty(baseOpts(fetch));
     const board = await k.eventLeaderboards.read('lb_1', { limit: 10 });
     expect(board.leaderboardId).toBe('lb_1');
-    expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/lb_1?limit=10');
+    expect(calls[0]?.url).toContain('/sdk/v1/event-leaderboards/lb_1?limit=10');
   });
 
   it('lobby_forming surfaces as an isLobbyForming() error', async () => {
@@ -436,7 +436,7 @@ describe('Kraty facade', () => {
     expect(board.sharedLeaderboardId).toBe('slb_1');
     expect(board.resetCadence).toBe('weekly');
     expect(board.entries).toHaveLength(1);
-    expect(calls[0]?.url).toContain('/sdk/v1/shared-leaderboards/weekly_global?limit=10');
+    expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/weekly_global?limit=10');
   });
 
   it('leaderboards.read passes segment + period + includeSelf in the URL', async () => {
@@ -492,6 +492,6 @@ describe('Kraty facade', () => {
     const resp = await k.leaderboards.listPeriods('weekly_global', { limit: 5 });
     expect(resp.periods).toHaveLength(2);
     expect(resp.periods[0]?.periodStartedAt).toBe('2026-06-15T00:00:00Z');
-    expect(calls[0]?.url).toContain('/sdk/v1/shared-leaderboards/weekly_global/periods?limit=5');
+    expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/weekly_global/periods?limit=5');
   });
 });
