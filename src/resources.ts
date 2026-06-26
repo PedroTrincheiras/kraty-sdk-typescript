@@ -11,9 +11,12 @@ import type {
   ConsumeItemResult,
   DebitWalletInput,
   DebitWalletResult,
+  EventLeaderboard,
+  EventLeaderboardReadOptions,
   EventListing,
   Grant,
   Leaderboard,
+  LeaderboardPeriods,
   LeaderboardReadOptions,
   Lobby,
   OpenCrateResponse,
@@ -125,114 +128,28 @@ export class EventsClient {
   }
 }
 
-export interface LeaderboardReadResult {
-  leaderboardId: string;
-  entries: Leaderboard['entries'];
-  self: Leaderboard['self'];
-  finalized: boolean;
-  mode: string;
-}
-
-export interface ReadSharedLeaderboardOptions {
-  /** Top-N rows to return (1..200, default 50). */
-  limit?: number;
-  /**
-   * Bucket value for segmented boards. Required when the board has
-   * `segmentation.key` set. Pass the same value the SDK sent in
-   * `playerContext[segmentation.key]` on attempt start.
-   */
-  segment?: string;
-  /**
-   * `'current'` (default) reads the live ranks. An ISO timestamp
-   * from `listSharedPeriods(...)` reads the historical snapshot.
-   */
-  period?: 'current' | string;
-  /** When set, returns the caller's rank under `self` (current only). */
-  includeSelf?: boolean;
-  /** Required when `includeSelf` is true. */
-  externalId?: string;
-}
-
-export interface SharedLeaderboardReadResult {
-  key: string;
-  sharedLeaderboardId: string;
-  scope: 'game' | 'studio';
-  resetCadence: 'never' | 'weekly' | 'monthly';
-  scoreAggregation: 'best' | 'latest' | 'sum';
-  /** Empty string for unsegmented boards; bucket value otherwise. */
-  segment: string | null;
-  /** ISO timestamp of the period this read refers to. */
-  period: string;
-  entries: Array<{
-    participantId: string;
-    kind: 'player' | 'bot';
-    name: string;
-    avatarUrl: string | null;
-    score: number;
-    rank: number;
-  }>;
-  self: { rank: number; score: number } | null;
-}
-
-export interface SharedLeaderboardPeriodsResult {
-  key: string;
-  sharedLeaderboardId: string;
-  currentPeriodStartedAt: string;
-  periods: Array<{ periodStartedAt: string; periodEndedAt: string }>;
-}
-
+/**
+ * Resource client for `/sdk/v1/shared-leaderboards/:key` — the
+ * dashboard-configured cross-event leaderboards. Addressed by the
+ * game-scoped `key` (e.g. `"weekly_global"`). For the auto-created
+ * per-event-window boards addressed by UUID, see {@link EventLeaderboardsClient}.
+ */
 export class LeaderboardsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/leaderboards/:id — top `limit` entries. Pass
-   * `includeSelf: true` + `externalId` to also receive the caller's
-   * rank/score.
-   */
-  async read(
-    leaderboardId: string,
-    opts: LeaderboardReadOptions = {},
-  ): Promise<LeaderboardReadResult> {
-    const params = new URLSearchParams();
-    if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
-    if (opts.includeSelf) {
-      params.set('includeSelf', 'true');
-      // Lazily resolve the active player when the dev didn't pass
-      // an explicit `externalId`. Same contract as every other
-      // player-scoped method on the SDK — game code never has to
-      // plumb the id through.
-      const externalId =
-        opts.externalId ?? (await this.client.ensureIdentity()).externalPlayerId;
-      params.set('externalId', externalId);
-    }
-    const qs = params.toString();
-    const path = qs
-      ? `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}?${qs}`
-      : `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}`;
-    const env = await this.client.request<DataEnvelope<LeaderboardReadResult>>('GET', path);
-    return env.data;
-  }
-
-  /**
-   * GET /sdk/v1/shared-leaderboards/:key
+   * GET /sdk/v1/shared-leaderboards/:key — snapshot read of a
+   * dashboard-configured cross-event leaderboard.
    *
-   * Reads a shared (cross-event) leaderboard. Addressed by its
-   * game-scoped `key` (e.g. `"weekly_global"`) rather than a UUID
-   * so game clients can hardcode it.
-   *
-   * For segmented boards, you MUST pass the same `segment` value
-   * your client supplied in `playerContext[segmentation.key]` on
-   * attempt start — the SDK refuses any other value when the
-   * board has a closed bucket list.
+   * For segmented boards, you MUST pass the same `segment` value your
+   * client supplied in `playerContext[segmentation.key]` on attempt
+   * start — the SDK refuses any other value when the board has a
+   * closed bucket list.
    *
    * Pass `period: 'current'` (default) for live ranks, or an ISO
-   * timestamp from `listSharedPeriods(...)` for a historical
-   * snapshot.
+   * timestamp from `listPeriods(...)` for a historical snapshot.
    */
-  async readShared(
-    key: string,
-    opts: ReadSharedLeaderboardOptions = {},
-  ): Promise<SharedLeaderboardReadResult> {
+  async read(key: string, opts: LeaderboardReadOptions = {}): Promise<Leaderboard> {
     const params = new URLSearchParams();
     if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
     if (opts.segment) params.set('segment', opts.segment);
@@ -247,29 +164,64 @@ export class LeaderboardsClient {
     const path = qs
       ? `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}?${qs}`
       : `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}`;
-    const env = await this.client.request<DataEnvelope<SharedLeaderboardReadResult>>('GET', path);
+    const env = await this.client.request<DataEnvelope<Leaderboard>>('GET', path);
     return env.data;
   }
 
   /**
    * GET /sdk/v1/shared-leaderboards/:key/periods
    *
-   * Lists the available snapshot periods for a shared leaderboard
-   * (newest first). Useful when the UI offers "this week", "last
-   * week", "two weeks ago" — pick a `periodStartedAt` from the
-   * result and re-call `readShared(key, { period })`.
+   * Lists the available snapshot periods (newest first). Useful when
+   * the UI offers "this week", "last week", "two weeks ago" — pick a
+   * `periodStartedAt` from the result and re-call `read(key, { period })`.
    */
-  async listSharedPeriods(
-    key: string,
-    opts: { limit?: number } = {},
-  ): Promise<SharedLeaderboardPeriodsResult> {
+  async listPeriods(key: string, opts: { limit?: number } = {}): Promise<LeaderboardPeriods> {
     const params = new URLSearchParams();
     if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
     const qs = params.toString();
     const path = qs
       ? `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}/periods?${qs}`
       : `/sdk/v1/shared-leaderboards/${encodeURIComponent(key)}/periods`;
-    const env = await this.client.request<DataEnvelope<SharedLeaderboardPeriodsResult>>('GET', path);
+    const env = await this.client.request<DataEnvelope<LeaderboardPeriods>>('GET', path);
+    return env.data;
+  }
+}
+
+/**
+ * Resource client for `/sdk/v1/leaderboards/:id` — the auto-generated
+ * per-event-window leaderboard, addressed by the UUID
+ * `events.start(...)` returns in `attempt.leaderboardId`. Includes
+ * Server-Sent-Events live streaming. For the dashboard-configured
+ * cross-event boards, see {@link LeaderboardsClient}.
+ */
+export class EventLeaderboardsClient {
+  constructor(private readonly client: KratyClient) {}
+
+  /**
+   * GET /sdk/v1/leaderboards/:id — top `limit` entries for one event
+   * window's leaderboard. Pass `includeSelf: true` + `externalId` to
+   * also receive the caller's rank/score.
+   */
+  async read(
+    leaderboardId: string,
+    opts: EventLeaderboardReadOptions = {},
+  ): Promise<EventLeaderboard> {
+    const params = new URLSearchParams();
+    if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
+    if (opts.includeSelf) {
+      params.set('includeSelf', 'true');
+      // Lazily resolve the active player when the dev didn't pass an
+      // explicit `externalId`. Same contract as every other
+      // player-scoped method on the SDK.
+      const externalId =
+        opts.externalId ?? (await this.client.ensureIdentity()).externalPlayerId;
+      params.set('externalId', externalId);
+    }
+    const qs = params.toString();
+    const path = qs
+      ? `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}?${qs}`
+      : `/sdk/v1/leaderboards/${encodeURIComponent(leaderboardId)}`;
+    const env = await this.client.request<DataEnvelope<EventLeaderboard>>('GET', path);
     return env.data;
   }
 
@@ -277,16 +229,13 @@ export class LeaderboardsClient {
    * GET /sdk/v1/leaderboards/:id/stream — opens a Server-Sent Events
    * subscription that pushes score updates in real time. Returns a
    * `LeaderboardStream` handle whose `events` async-iterable yields
-   * each parsed event. See the module's docstring for event kinds
-   * (`ready`, `score_update`, `closed`).
+   * each parsed event (`ready`, `score_update`, `closed`).
    *
    * Does NOT auto-reconnect on transport drop — the iterable throws
    * `KratyNetworkError` and you re-call `live(...)` after a backoff
    * if you want resumption.
    *
-   * Low-level — prefer `subscribe(...)` for game UIs (callback-style,
-   * polls in the background so bot scores update even if no human
-   * action would otherwise trigger a server-side read).
+   * Low-level — prefer `subscribe(...)` for game UIs.
    */
   live(leaderboardId: string): Promise<LeaderboardStream> {
     return openLeaderboardStream({
@@ -300,30 +249,22 @@ export class LeaderboardsClient {
   }
 
   /**
-   * High-level live leaderboard subscription. Composes:
-   *
-   *  1. the SSE stream from `live()` (real-time push for player + bot
-   *     score updates the server has published), AND
-   *  2. a periodic background `read()` poll that nudges the server's
-   *     lazy bot evaluator to advance bot scores, then dedupes the
-   *     resulting deltas against the SSE feed.
-   *
-   * Why both: bot scores climb on a schedule even when no player
-   * action triggers a read. Without the background poll, idle UIs
-   * never see bots tick. The SSE stream then carries the resulting
-   * `score_update` events (the backend publishes deltas on every lazy
-   * eval) so multiple subscribers per leaderboard share one fan-out.
+   * High-level live event-leaderboard subscription. Composes the
+   * `live()` SSE stream with a periodic background `read()` poll that
+   * nudges the server's lazy bot evaluator and dedupes the resulting
+   * deltas against the SSE feed. Idle UIs need the poll so bots tick
+   * on schedule even without player action; the SSE side carries the
+   * resulting score updates with low latency.
    *
    * Callback fires for every event from either source, deduped so the
    * same `(participantId, score)` doesn't surface twice. Returns a
    * handle whose `close()` tears down both transports.
    *
-   * @param leaderboardId  The leaderboard to subscribe to.
+   * @param leaderboardId  The event leaderboard UUID to subscribe to.
    * @param onEvent        Fired for every `LeaderboardStreamEvent`.
    * @param opts.pollIntervalMs  Background read cadence. Default 15_000.
    *                              Set to 0 to disable polling (SSE-only).
    * @param opts.onError   Optional — receives transport / parse errors.
-   *                       SSE errors are non-fatal; the poll keeps running.
    */
   subscribe(
     leaderboardId: string,

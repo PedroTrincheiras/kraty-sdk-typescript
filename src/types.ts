@@ -58,7 +58,12 @@ export interface LeaderboardEntry {
   isSelf: boolean;
 }
 
-export interface Leaderboard {
+/**
+ * The auto-generated per-event-window leaderboard, addressed by the
+ * UUID returned in `events.start(...)`'s `attempt.leaderboardId`. For
+ * the dashboard-configured cross-event boards, see {@link Leaderboard}.
+ */
+export interface EventLeaderboard {
   leaderboardId: string;
   mode: string;
   finalized: boolean;
@@ -66,13 +71,67 @@ export interface Leaderboard {
   self: { rank: number; score: number } | null;
 }
 
-export interface LeaderboardReadOptions {
+export interface EventLeaderboardReadOptions {
   /** Number of entries to fetch. 1–200, default 50 on the server side. */
   limit?: number;
   /** When true, server returns `self: { rank, score }` for the given externalId. */
   includeSelf?: boolean;
   /** Required when `includeSelf` is set. */
   externalId?: string;
+}
+
+/**
+ * The dashboard-configured cross-event leaderboard, addressed by its
+ * game-scoped `key` (e.g. `"weekly_global"`). The primary surface for
+ * most game UI. For the auto-created per-event-window boards, see
+ * {@link EventLeaderboard}.
+ */
+export interface Leaderboard {
+  /** The board's stable game-scoped key (e.g. `"weekly_global"`). */
+  key: string;
+  /** UUID of the leaderboard config row. */
+  sharedLeaderboardId: string;
+  scope: 'game' | 'studio';
+  resetCadence: 'never' | 'weekly' | 'monthly';
+  scoreAggregation: 'best' | 'latest' | 'sum';
+  /** Empty string for unsegmented boards; bucket value otherwise. */
+  segment: string | null;
+  /** ISO timestamp of the period this read refers to. */
+  period: string;
+  entries: LeaderboardEntry[];
+  self: { rank: number; score: number } | null;
+}
+
+export interface LeaderboardReadOptions {
+  /** Top-N rows to return (1..200, default 50). */
+  limit?: number;
+  /**
+   * Bucket value for segmented boards. Required when the board has
+   * `segmentation.key` set. Pass the same value the SDK sent in
+   * `playerContext[segmentation.key]` on attempt start.
+   */
+  segment?: string;
+  /**
+   * `'current'` (default) reads the live ranks. An ISO timestamp from
+   * `listPeriods(...)` reads the historical snapshot.
+   */
+  period?: 'current' | string;
+  /** When set, returns the caller's rank under `self` (current only). */
+  includeSelf?: boolean;
+  /** Required when `includeSelf` is true. */
+  externalId?: string;
+}
+
+export interface LeaderboardPeriod {
+  periodStartedAt: string;
+  periodEndedAt: string;
+}
+
+export interface LeaderboardPeriods {
+  key: string;
+  sharedLeaderboardId: string;
+  currentPeriodStartedAt: string;
+  periods: LeaderboardPeriod[];
 }
 
 export type GrantKind = 'reward' | 'crate';

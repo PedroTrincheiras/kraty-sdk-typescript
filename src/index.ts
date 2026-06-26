@@ -2,6 +2,7 @@ import { KratyClient, type KratyClientOptions } from './client.js';
 import { KratyApiError } from './errors.js';
 import {
   CatalogClient,
+  EventLeaderboardsClient,
   EventsClient,
   GrantsClient,
   InventoryClient,
@@ -18,6 +19,7 @@ export { KratyClient } from './client.js';
 export type { KratyClientOptions, RetryConfig, RequestInfo } from './client.js';
 export {
   CatalogClient,
+  EventLeaderboardsClient,
   EventsClient,
   GrantsClient,
   InventoryClient,
@@ -31,7 +33,6 @@ export {
 export type {
   CollectAllFailure,
   CollectAllResult,
-  LeaderboardReadResult,
   PollLobbyOptions,
   PollPendingGrantsOptions,
 } from './resources.js';
@@ -70,11 +71,15 @@ export type {
   EntryCostCurrency,
   EntryCostItem,
   EventListing,
+  EventLeaderboard,
+  EventLeaderboardReadOptions,
   Grant,
   GrantKind,
   GrantStatus,
   Leaderboard,
   LeaderboardEntry,
+  LeaderboardPeriod,
+  LeaderboardPeriods,
   LeaderboardReadOptions,
   Lobby,
   LobbyStatus,
@@ -109,6 +114,7 @@ export class Kraty {
   readonly client: KratyClient;
   readonly events: EventsClient;
   readonly leaderboards: LeaderboardsClient;
+  readonly eventLeaderboards: EventLeaderboardsClient;
   readonly grants: GrantsClient;
   readonly lobbies: LobbiesClient;
   readonly inventory: InventoryClient;
@@ -120,6 +126,7 @@ export class Kraty {
     this.client = new KratyClient(opts);
     this.events = new EventsClient(this.client);
     this.leaderboards = new LeaderboardsClient(this.client);
+    this.eventLeaderboards = new EventLeaderboardsClient(this.client);
     this.grants = new GrantsClient(this.client);
     this.lobbies = new LobbiesClient(this.client);
     this.inventory = new InventoryClient(this.client);

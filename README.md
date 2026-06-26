@@ -23,9 +23,9 @@ repo against a tagged release. Each release ships compiled `dist/`
 artefacts so no build step is needed on your side.
 
 ```sh
-npm install github:PedroTrincheiras/kraty-sdk-typescript#v0.1.0
+npm install github:PedroTrincheiras/kraty-sdk-typescript#v0.4.0
 # or with pnpm:
-pnpm add github:PedroTrincheiras/kraty-sdk-typescript#v0.1.0
+pnpm add github:PedroTrincheiras/kraty-sdk-typescript#v0.4.0
 ```
 
 Browse releases at
@@ -64,13 +64,20 @@ await kraty.events.progress(events[0]!.eventKey, attempt.id, {
   metricValue: 100,
 });
 
-// 4) Read the leaderboard — includeSelf resolves to the active
-//    player automatically.
-const board = await kraty.leaderboards.read(leaderboardId, {
+// 4a) Read the per-event leaderboard — the UUID `events.start`
+//     returned.
+const eventBoard = await kraty.eventLeaderboards.read(leaderboardId, {
   limit: 50,
   includeSelf: true,
 });
-console.log(board.entries.slice(0, 3), 'self:', board.self);
+console.log(eventBoard.entries.slice(0, 3), 'self:', eventBoard.self);
+
+// 4b) Or the dashboard-configured cross-event board, by key.
+const weekly = await kraty.leaderboards.read('weekly_global', {
+  limit: 50,
+  includeSelf: true,
+});
+console.log(weekly.entries.slice(0, 3));
 
 // 5) Claim any pending grants the player earned.
 const pending = await kraty.grants.listPending();

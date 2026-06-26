@@ -219,7 +219,7 @@ describe('Kraty facade', () => {
         }),
     ]);
     const k = new Kraty(baseOpts(fetch));
-    const board = await k.leaderboards.read('lb_1', { limit: 10 });
+    const board = await k.eventLeaderboards.read('lb_1', { limit: 10 });
     expect(board.leaderboardId).toBe('lb_1');
     expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/lb_1?limit=10');
   });
@@ -359,7 +359,7 @@ describe('Kraty facade', () => {
     expect(out.milestonesFired).toEqual([]);
   });
 
-  it('leaderboards.read with includeSelf builds the query string', async () => {
+  it('eventLeaderboards.read with includeSelf builds the query string', async () => {
     const { fetch, calls } = makeFetch([
       () =>
         jsonRes(200, {
@@ -373,7 +373,7 @@ describe('Kraty facade', () => {
         }),
     ]);
     const k = new Kraty(baseOpts(fetch));
-    const out = await k.leaderboards.read('lb_self', {
+    const out = await k.eventLeaderboards.read('lb_self', {
       includeSelf: true,
       externalId: 'alice',
       limit: 5,
@@ -384,9 +384,9 @@ describe('Kraty facade', () => {
     expect(calls[0]?.url).toContain('externalId=alice');
   });
 
-  it('leaderboards.read auto-resolves the active player when includeSelf is set without externalId', async () => {
+  it('eventLeaderboards.read auto-resolves the active player when includeSelf is set without externalId', async () => {
     // Three calls: (1) lazy register the auto-player, (2) the
-    // leaderboards.read with `externalId` filled in from the
+    // eventLeaderboards.read with `externalId` filled in from the
     // freshly-minted id, (3) nothing else. The test asserts the
     // SDK no longer demands the dev plumb `externalId` through.
     const { fetch, calls } = makeFetch([
@@ -403,11 +403,95 @@ describe('Kraty facade', () => {
         }),
     ]);
     const k = new Kraty(baseOpts(fetch));
-    const out = await k.leaderboards.read('lb_x', { includeSelf: true });
+    const out = await k.eventLeaderboards.read('lb_x', { includeSelf: true });
     expect(out.self).toEqual({ rank: 9, score: 1 });
     // Auto-minted id is UUID-shaped with the `kp_` prefix.
     expect(calls[0]?.url).toMatch(/\/sdk\/v1\/players\/kp_[A-Za-z0-9_-]+\/register$/);
     expect(calls[1]?.url).toContain('includeSelf=true');
     expect(calls[1]?.url).toMatch(/externalId=kp_[A-Za-z0-9_-]+/);
+  });
+
+  it('leaderboards.read hits the keyed route and decodes the shape', async () => {
+    const { fetch, calls } = makeFetch([
+      () =>
+        jsonRes(200, {
+          data: {
+            key: 'weekly_global',
+            sharedLeaderboardId: 'slb_1',
+            scope: 'game',
+            resetCadence: 'weekly',
+            scoreAggregation: 'best',
+            segment: null,
+            period: '2026-06-22T00:00:00Z',
+            entries: [
+              { participantId: 'p1', kind: 'player', name: 'alice', avatarUrl: null, score: 42, rank: 1, isSelf: false },
+            ],
+            self: null,
+          },
+        }),
+    ]);
+    const k = new Kraty(baseOpts(fetch));
+    const board = await k.leaderboards.read('weekly_global', { limit: 10 });
+    expect(board.key).toBe('weekly_global');
+    expect(board.sharedLeaderboardId).toBe('slb_1');
+    expect(board.resetCadence).toBe('weekly');
+    expect(board.entries).toHaveLength(1);
+    expect(calls[0]?.url).toContain('/sdk/v1/shared-leaderboards/weekly_global?limit=10');
+  });
+
+  it('leaderboards.read passes segment + period + includeSelf in the URL', async () => {
+    const { fetch, calls } = makeFetch([
+      () =>
+        jsonRes(200, {
+          data: {
+            key: 'weekly_region',
+            sharedLeaderboardId: 'slb_2',
+            scope: 'game',
+            resetCadence: 'weekly',
+            scoreAggregation: 'best',
+            segment: 'eu',
+            period: '2026-06-15T00:00:00Z',
+            entries: [],
+            self: { rank: 7, score: 100 },
+          },
+        }),
+    ]);
+    const k = new Kraty(baseOpts(fetch));
+    const board = await k.leaderboards.read('weekly_region', {
+      limit: 25,
+      segment: 'eu',
+      period: '2026-06-15T00:00:00Z',
+      includeSelf: true,
+      externalId: 'alice',
+    });
+    expect(board.segment).toBe('eu');
+    expect(board.self).toEqual({ rank: 7, score: 100 });
+    expect(calls[0]?.url).toContain('limit=25');
+    expect(calls[0]?.url).toContain('segment=eu');
+    expect(calls[0]?.url).toContain('period=2026-06-15T00%3A00%3A00Z');
+    expect(calls[0]?.url).toContain('includeSelf=true');
+    expect(calls[0]?.url).toContain('externalId=alice');
+  });
+
+  it('leaderboards.listPeriods decodes newest-first periods', async () => {
+    const { fetch, calls } = makeFetch([
+      () =>
+        jsonRes(200, {
+          data: {
+            key: 'weekly_global',
+            sharedLeaderboardId: 'slb_1',
+            currentPeriodStartedAt: '2026-06-22T00:00:00Z',
+            periods: [
+              { periodStartedAt: '2026-06-15T00:00:00Z', periodEndedAt: '2026-06-22T00:00:00Z' },
+              { periodStartedAt: '2026-06-08T00:00:00Z', periodEndedAt: '2026-06-15T00:00:00Z' },
+            ],
+          },
+        }),
+    ]);
+    const k = new Kraty(baseOpts(fetch));
+    const resp = await k.leaderboards.listPeriods('weekly_global', { limit: 5 });
+    expect(resp.periods).toHaveLength(2);
+    expect(resp.periods[0]?.periodStartedAt).toBe('2026-06-15T00:00:00Z');
+    expect(calls[0]?.url).toContain('/sdk/v1/shared-leaderboards/weekly_global/periods?limit=5');
   });
 });
