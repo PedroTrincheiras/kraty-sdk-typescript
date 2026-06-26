@@ -1,4 +1,4 @@
-# Kraty TypeScript SDK — public surface (v0.4.0)
+# Kraty TypeScript SDK — public surface (v0.4.1)
 
 Canonical method + type listing for `@kraty/sdk`. Update this file in
 the same commit as any signature change.
@@ -36,7 +36,10 @@ progress(eventKey: string, attemptId: string, input: ProgressInput, opts?: { as?
 ## `kraty.leaderboards` — `LeaderboardsClient`
 
 The dashboard-configured cross-event boards. Addressed by stable
-game-scoped **key**.
+game-scoped **key**. Wire endpoints:
+
+- `GET /sdk/v1/leaderboards/:key`
+- `GET /sdk/v1/leaderboards/:key/periods`
 
 ```ts
 read(key: string, opts?: LeaderboardReadOptions): Promise<Leaderboard>
@@ -54,7 +57,10 @@ listPeriods(key: string, opts?: { limit?: number }): Promise<LeaderboardPeriods>
 
 The auto-generated per-event-window leaderboard. Addressed by the
 **UUID** returned in `events.start(...)`'s `attempt.leaderboardId`.
-Includes Server-Sent Events live streaming.
+Includes Server-Sent Events live streaming. Wire endpoints:
+
+- `GET /sdk/v1/event-leaderboards/:id`
+- `GET /sdk/v1/event-leaderboards/:id/stream`
 
 ```ts
 read(leaderboardId: string, opts?: EventLeaderboardReadOptions): Promise<EventLeaderboard>
