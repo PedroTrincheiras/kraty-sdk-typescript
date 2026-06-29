@@ -40,18 +40,25 @@ game-scoped **key**. Wire endpoints:
 
 - `GET /sdk/v1/leaderboards/:key`
 - `GET /sdk/v1/leaderboards/:key/periods`
+- `POST /sdk/v1/players/:externalId/leaderboards/:key/score`
 
 ```ts
 read(key: string, opts?: LeaderboardReadOptions): Promise<Leaderboard>
+submitScore(key: string, value: number, opts?: { segment?: string; idempotencyKey?: string; as?: string }): Promise<LeaderboardScoreResult>
 listPeriods(key: string, opts?: { limit?: number }): Promise<LeaderboardPeriods>
 ```
 
 `LeaderboardReadOptions`:
 - `limit?: number` — 1–200, default 50 server-side
-- `segment?: string` — bucket value for segmented boards (REQUIRED on segmented boards)
+- `segment?: string` — bucket value; required only for `context` segmentation. Omit for `progression`-segmented boards (server derives the caller's division); unsegmented boards ignore it
 - `period?: 'current' | string` — `'current'` (default) or an ISO timestamp from `LeaderboardPeriod.periodStartedAt`
 - `includeSelf?: boolean` — when true, response includes `self: { rank, score }` (live periods only)
 - `externalId?: string` — required when `includeSelf` is true; lazily resolved otherwise
+
+`submitScore` — submit a score for the active player directly to the board, outside an event attempt. `segment` is required only for `context` segmentation; omit for `progression` boards. Errors: `client_scoring_disabled` (403, board is server-only), `score_not_supported` (400, progression-ranked board), `not_found` (404), `validation_failed` (400). Returns `LeaderboardScoreResult`:
+- `leaderboardId: string`
+- `score: number`
+- `rank: number | null`
 
 ## `kraty.eventLeaderboards` — `EventLeaderboardsClient`
 

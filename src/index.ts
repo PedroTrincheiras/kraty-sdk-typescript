@@ -81,6 +81,7 @@ export type {
   LeaderboardPeriod,
   LeaderboardPeriods,
   LeaderboardReadOptions,
+  LeaderboardScoreResult,
   Lobby,
   LobbyStatus,
   MilestoneFired,

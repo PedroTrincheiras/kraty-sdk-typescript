@@ -102,13 +102,31 @@ export interface Leaderboard {
   self: { rank: number; score: number } | null;
 }
 
+/**
+ * Result of `LeaderboardsClient.submitScore` — the player's new
+ * standing on the board after the write. `rank` is `null` when the
+ * board can't resolve a position for the caller yet (e.g. the period
+ * just rolled over, or the score didn't beat a `best`-aggregation
+ * board's existing entry).
+ */
+export interface LeaderboardScoreResult {
+  /** UUID of the leaderboard config row the score landed on. */
+  leaderboardId: string;
+  /** The score now recorded for the player on this board. */
+  score: number;
+  /** The player's rank after the write, or `null` if not yet ranked. */
+  rank: number | null;
+}
+
 export interface LeaderboardReadOptions {
   /** Top-N rows to return (1..200, default 50). */
   limit?: number;
   /**
-   * Bucket value for segmented boards. Required when the board has
-   * `segmentation.key` set. Pass the same value the SDK sent in
-   * `playerContext[segmentation.key]` on attempt start.
+   * Bucket value for segmented boards. Required only for `context`
+   * segmentation — pass the same value the SDK sent in
+   * `playerContext[segmentation.key]` on attempt start. For
+   * `progression`-segmented boards omit it: the server derives the
+   * caller's division. Unsegmented boards ignore it.
    */
   segment?: string;
   /**

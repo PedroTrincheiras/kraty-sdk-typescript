@@ -18,6 +18,7 @@ import type {
   Leaderboard,
   LeaderboardPeriods,
   LeaderboardReadOptions,
+  LeaderboardScoreResult,
   Lobby,
   OpenCrateResponse,
   PlayerContext,
@@ -141,10 +142,11 @@ export class LeaderboardsClient {
    * GET /sdk/v1/leaderboards/:key — snapshot read of a
    * dashboard-configured cross-event leaderboard.
    *
-   * For segmented boards, you MUST pass the same `segment` value your
-   * client supplied in `playerContext[segmentation.key]` on attempt
-   * start — the SDK refuses any other value when the board has a
-   * closed bucket list.
+   * `segment` is required only for `context`-segmented boards — pass
+   * the same value your client supplied in
+   * `playerContext[segmentation.key]` on attempt start. For
+   * `progression`-segmented boards omit it; the server derives the
+   * caller's division. Unsegmented boards ignore it.
    *
    * Pass `period: 'current'` (default) for live ranks, or an ISO
    * timestamp from `listPeriods(...)` for a historical snapshot.
@@ -165,6 +167,41 @@ export class LeaderboardsClient {
       ? `/sdk/v1/leaderboards/${encodeURIComponent(key)}?${qs}`
       : `/sdk/v1/leaderboards/${encodeURIComponent(key)}`;
     const env = await this.client.request<DataEnvelope<Leaderboard>>('GET', path);
+    return env.data;
+  }
+
+  /**
+   * POST /sdk/v1/players/:p/leaderboards/:key/score — submit a score
+   * for the active player directly to a dashboard-configured board,
+   * outside an event attempt. Returns the player's new score + rank.
+   *
+   * `segment` is required only for `context`-segmented boards (pass
+   * the bucket value). For `progression`-segmented boards omit it —
+   * the server derives the player's division; unsegmented boards
+   * ignore it.
+   *
+   * Throws `KratyApiError`: `client_scoring_disabled` (403) when the
+   * board is server-only, `score_not_supported` (400) on a
+   * progression-ranked board, `not_found` (404), `validation_failed`
+   * (400). Pass `{ as }` to address a different player (server-side
+   * tooling only).
+   */
+  async submitScore(
+    key: string,
+    value: number,
+    opts: { segment?: string; idempotencyKey?: string; as?: string } = {},
+  ): Promise<LeaderboardScoreResult> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'leaderboards.submitScore');
+    const body: { value: number; segment?: string; idempotencyKey?: string } = { value };
+    if (opts.segment) body.segment = opts.segment;
+    if (opts.idempotencyKey) body.idempotencyKey = opts.idempotencyKey;
+    const env = await this.client.request<DataEnvelope<LeaderboardScoreResult>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/leaderboards/${encodeURIComponent(
+        key,
+      )}/score`,
+      body,
+    );
     return env.data;
   }
 
