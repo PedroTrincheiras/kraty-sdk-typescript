@@ -69,6 +69,8 @@ export interface EventLeaderboard {
   finalized: boolean;
   entries: LeaderboardEntry[];
   self: { rank: number; score: number } | null;
+  /** `true` on the response to `join(...)`; absent on plain reads. */
+  joined?: boolean;
 }
 
 export interface EventLeaderboardReadOptions {
@@ -100,6 +102,62 @@ export interface Leaderboard {
   period: string;
   entries: LeaderboardEntry[];
   self: { rank: number; score: number } | null;
+  /** `true` on the response to `join(...)`; absent on plain reads. */
+  joined?: boolean;
+}
+
+/** Which segment(s) a {@link LeaderboardsClient.standings} call returns. */
+export type StandingsScope = 'self_segment' | 'mine' | 'segment' | 'all';
+
+/** One segment block in a {@link BoardStandings} response. */
+export interface StandingsSegment {
+  /** Bucket value; `null` on unsegmented boards. */
+  segment: string | null;
+  /** `true` when the caller appears in this segment for the period. */
+  participated: boolean;
+  /** The caller's rank within this segment, or `null` if not present. */
+  selfRank: number | null;
+  entries: LeaderboardEntry[];
+}
+
+/**
+ * Flexible multi-segment standings — the versatile counterpart to
+ * {@link Leaderboard}. Returns one {@link StandingsSegment} block per
+ * segment selected by `scope`, live or for a past `period`.
+ */
+export interface BoardStandings {
+  key: string;
+  sharedLeaderboardId: string;
+  scope: 'game' | 'studio';
+  resetCadence: 'never' | 'weekly' | 'monthly';
+  scoreAggregation: 'best' | 'latest' | 'sum';
+  period: string;
+  segments: StandingsSegment[];
+  /** `true` when more segments existed than `maxSegments` returned. */
+  segmentsTruncated: boolean;
+}
+
+export interface StandingsReadOptions {
+  /**
+   * Which segments to return (default `'all'`):
+   *   - `'self_segment'` — the caller's single home segment.
+   *   - `'mine'`         — every segment the caller appears in.
+   *   - `'segment'`      — the one named in `segment`.
+   *   - `'all'`          — every segment for the period.
+   * `self_segment`/`mine` resolve the caller from `externalId` (or the
+   * SDK's active identity).
+   */
+  scope?: StandingsScope;
+  /** Required when `scope: 'segment'` on a segmented board. */
+  segment?: string;
+  /** `'current'` (default) or an ISO period timestamp from `listPeriods`. */
+  period?: 'current' | string;
+  /** Flags `isSelf`/`selfRank`; auto-resolved for `self_segment`/`mine`. */
+  externalId?: string;
+  /** Per-segment top-N (1..200, default 50). */
+  limit?: number;
+  /** Cap on returned segment blocks (1..100, default 20). */
+  maxSegments?: number;
 }
 
 /**

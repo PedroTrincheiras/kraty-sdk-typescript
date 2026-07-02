@@ -1,4 +1,4 @@
-# Kraty TypeScript SDK — public surface (v0.4.1)
+# Kraty TypeScript SDK — public surface (v0.6.0)
 
 Canonical method + type listing for `@kraty/sdk`. Update this file in
 the same commit as any signature change.
@@ -39,11 +39,15 @@ The dashboard-configured cross-event boards. Addressed by stable
 game-scoped **key**. Wire endpoints:
 
 - `GET /sdk/v1/leaderboards/:key`
+- `GET /sdk/v1/leaderboards/:key/standings`
 - `GET /sdk/v1/leaderboards/:key/periods`
+- `POST /sdk/v1/players/:externalId/leaderboards/:key/join`
 - `POST /sdk/v1/players/:externalId/leaderboards/:key/score`
 
 ```ts
 read(key: string, opts?: LeaderboardReadOptions): Promise<Leaderboard>
+join(key: string, opts?: { limit?: number; segment?: string; externalId?: string }): Promise<Leaderboard>
+standings(key: string, opts?: StandingsReadOptions): Promise<BoardStandings>
 submitScore(key: string, value: number, opts?: { segment?: string; idempotencyKey?: string; as?: string }): Promise<LeaderboardScoreResult>
 listPeriods(key: string, opts?: { limit?: number }): Promise<LeaderboardPeriods>
 ```
@@ -54,6 +58,19 @@ listPeriods(key: string, opts?: { limit?: number }): Promise<LeaderboardPeriods>
 - `period?: 'current' | string` — `'current'` (default) or an ISO timestamp from `LeaderboardPeriod.periodStartedAt`
 - `includeSelf?: boolean` — when true, response includes `self: { rank, score }` (live periods only)
 - `externalId?: string` — required when `includeSelf` is true; lazily resolved otherwise
+
+`join` — add the active player to the board at score 0 without submitting a score; returns the current standings with `joined: true`. Idempotent (never resets an existing score). Pass `segment` for `context` boards; omit for `progression` boards (server derives the division from the caller's balance).
+
+`standings` — multi-segment read. Returns one `StandingsSegment` block per segment selected by `scope`. `StandingsReadOptions`:
+- `scope?: 'self_segment' | 'mine' | 'segment' | 'all'` — default `'all'`
+- `segment?: string` — required when `scope: 'segment'` on a segmented board
+- `period?: 'current' | string` — default `'current'`
+- `externalId?: string` — auto-resolved for `self_segment` / `mine`
+- `limit?: number` — per-segment top-N (1..200, default 50)
+- `maxSegments?: number` — cap on returned segment blocks (1..100, default 20)
+
+`BoardStandings`: `key`, `sharedLeaderboardId`, `scope`, `resetCadence`, `scoreAggregation`, `period`, `segments: StandingsSegment[]`, `segmentsTruncated: boolean`.
+`StandingsSegment`: `segment: string | null`, `participated: boolean`, `selfRank: number | null`, `entries: LeaderboardEntry[]`.
 
 `submitScore` — submit a score for the active player directly to the board, outside an event attempt. `segment` is required only for `context` segmentation; omit for `progression` boards. Errors: `client_scoring_disabled` (403, board is server-only), `score_not_supported` (400, progression-ranked board), `not_found` (404), `validation_failed` (400). Returns `LeaderboardScoreResult`:
 - `leaderboardId: string`
@@ -68,9 +85,11 @@ Includes Server-Sent Events live streaming. Wire endpoints:
 
 - `GET /sdk/v1/event-leaderboards/:id`
 - `GET /sdk/v1/event-leaderboards/:id/stream`
+- `POST /sdk/v1/players/:externalId/event-leaderboards/:id/join`
 
 ```ts
 read(leaderboardId: string, opts?: EventLeaderboardReadOptions): Promise<EventLeaderboard>
+join(leaderboardId: string, opts?: { limit?: number; as?: string }): Promise<EventLeaderboard>
 live(leaderboardId: string): Promise<LeaderboardStream>
 subscribe(
   leaderboardId: string,
@@ -78,6 +97,8 @@ subscribe(
   opts?: { pollIntervalMs?: number; onError?: (err: unknown) => void }
 ): { close: () => Promise<void> }
 ```
+
+`join` — enrols the active player in the current event window at score 0 without starting a scoring attempt; returns the board with `joined: true`. Idempotent. Throws `KratyApiError` with code `conflict` (409) once the window has finalized.
 
 `EventLeaderboardReadOptions`:
 - `limit?: number`

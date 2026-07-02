@@ -60,6 +60,7 @@ export {
 export type {
   Attempt,
   AttemptStatus,
+  BoardStandings,
   Catalog,
   CatalogCurrency,
   CatalogItem,
@@ -96,6 +97,9 @@ export type {
   RewardBundlePreview,
   RewardEntryPreview,
   RewardPolicySummary,
+  StandingsReadOptions,
+  StandingsScope,
+  StandingsSegment,
   StartAttemptResponse,
 } from './types.js';
 

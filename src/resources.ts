@@ -6,6 +6,7 @@ import {
   type LeaderboardStreamEvent,
 } from './leaderboard-stream.js';
 import type {
+  BoardStandings,
   Catalog,
   ConsumeItemInput,
   ConsumeItemResult,
@@ -19,6 +20,7 @@ import type {
   LeaderboardPeriods,
   LeaderboardReadOptions,
   LeaderboardScoreResult,
+  StandingsReadOptions,
   Lobby,
   OpenCrateResponse,
   PlayerContext,
@@ -206,6 +208,70 @@ export class LeaderboardsClient {
   }
 
   /**
+   * POST /sdk/v1/players/:p/leaderboards/:key/join — add the active
+   * player to a configurable board at score 0 WITHOUT submitting a
+   * score (they just "appear"), and return the current standings for
+   * their segment. Idempotent — never resets an existing score.
+   *
+   * `segment` is the bucket value for `context`-segmented boards;
+   * derived server-side for `progression` boards. Pass `{ as }` to
+   * address a different player (server-side tooling only).
+   */
+  async join(
+    key: string,
+    opts: { segment?: string; limit?: number; as?: string } = {},
+  ): Promise<Leaderboard> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'leaderboards.join');
+    const params = new URLSearchParams();
+    if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const body: { segment?: string } = {};
+    if (opts.segment) body.segment = opts.segment;
+    const base = `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/leaderboards/${encodeURIComponent(
+      key,
+    )}/join`;
+    const env = await this.client.request<DataEnvelope<Leaderboard>>(
+      'POST',
+      qs ? `${base}?${qs}` : base,
+      body,
+    );
+    return env.data;
+  }
+
+  /**
+   * GET /sdk/v1/leaderboards/:key/standings — flexible multi-segment
+   * read. Returns one block per segment (`scope` picks which), each
+   * flagging the caller (`isSelf` on entries, `selfRank`, `participated`).
+   * Works live (`period: 'current'`) or for a past period.
+   *
+   * Use this over `read(...)` when you want "my division", "every
+   * division I'm in" (`scope: 'mine'`), or the whole ladder
+   * (`scope: 'all'`). `self_segment`/`mine` resolve the caller from
+   * `externalId` (or the SDK's active identity).
+   */
+  async standings(key: string, opts: StandingsReadOptions = {}): Promise<BoardStandings> {
+    const scope = opts.scope ?? 'all';
+    const params = new URLSearchParams();
+    params.set('scope', scope);
+    if (opts.segment) params.set('segment', opts.segment);
+    if (opts.period) params.set('period', opts.period);
+    if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
+    if (typeof opts.maxSegments === 'number') params.set('maxSegments', String(opts.maxSegments));
+    // self_segment / mine need a caller; auto-resolve the active
+    // identity when the dev didn't pass one explicitly.
+    let externalId = opts.externalId;
+    if (!externalId && (scope === 'self_segment' || scope === 'mine')) {
+      externalId = (await this.client.ensureIdentity()).externalPlayerId;
+    }
+    if (externalId) params.set('externalId', externalId);
+    const env = await this.client.request<DataEnvelope<BoardStandings>>(
+      'GET',
+      `/sdk/v1/leaderboards/${encodeURIComponent(key)}/standings?${params.toString()}`,
+    );
+    return env.data;
+  }
+
+  /**
    * GET /sdk/v1/leaderboards/:key/periods
    *
    * Lists the available snapshot periods (newest first). Useful when
@@ -259,6 +325,32 @@ export class EventLeaderboardsClient {
       ? `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}?${qs}`
       : `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}`;
     const env = await this.client.request<DataEnvelope<EventLeaderboard>>('GET', path);
+    return env.data;
+  }
+
+  /**
+   * POST /sdk/v1/players/:p/event-leaderboards/:id/join — add the
+   * active player to a per-event-window board at score 0 WITHOUT
+   * starting a scoring attempt, and return the current board.
+   * Idempotent. Throws `KratyApiError` with `conflict` (409) once the
+   * window has closed. Pass `{ as }` to address a different player.
+   */
+  async join(
+    leaderboardId: string,
+    opts: { limit?: number; as?: string } = {},
+  ): Promise<EventLeaderboard> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'eventLeaderboards.join');
+    const params = new URLSearchParams();
+    if (typeof opts.limit === 'number') params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    const base = `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/event-leaderboards/${encodeURIComponent(
+      leaderboardId,
+    )}/join`;
+    const env = await this.client.request<DataEnvelope<EventLeaderboard>>(
+      'POST',
+      qs ? `${base}?${qs}` : base,
+      {},
+    );
     return env.data;
   }
 
