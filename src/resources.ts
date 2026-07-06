@@ -1,5 +1,6 @@
 import { KratyClient } from './client.js';
 import { KratyApiError } from './errors.js';
+import { MembershipKind } from './finalization.js';
 import {
   openLeaderboardStream,
   type LeaderboardStream,
@@ -101,6 +102,11 @@ export class EventsClient {
       )}/start`,
       { playerContext },
     );
+    // Track the session/event board for finalization catch-up (docs/05b) —
+    // fire-and-forget so it never adds latency to start.
+    void this.client
+      .trackMembership({ kind: MembershipKind.EventBoard, leaderboardId: env.data.leaderboardId, eventKey })
+      .catch(() => undefined);
     return env.data;
   }
 
@@ -427,6 +433,14 @@ export class EventLeaderboardsClient {
           if (prior === score) return;
           lastSurfacedScore.set(pid, score);
         }
+      }
+      // Route finalizations into the tracker's single writer (docs/05b) so a
+      // live `finalized` persists to the registry + fires onFinalized, exactly
+      // like catch-up would. Fire-and-forget; independent of the app's onEvent.
+      if (event.kind === 'finalized') {
+        void this.client
+          .routeFinalized(leaderboardId, event.data as { reason?: string })
+          .catch(() => undefined);
       }
       try {
         onEvent(event);

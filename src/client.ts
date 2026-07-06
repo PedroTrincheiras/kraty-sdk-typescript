@@ -4,6 +4,16 @@ import {
   LocalStorageSecretStore,
   type SecretStore,
 } from './secret-store.js';
+import {
+  FinalizationTracker,
+  InMemoryMembershipStore,
+  LocalStorageMembershipStore,
+  type FinalizationListener,
+  type FinalizationResult,
+  type FinalizationReason,
+  type MembershipRef,
+  type MembershipStore,
+} from './finalization.js';
 
 /**
  * SDK name + version, sent as `X-Kraty-SDK: <name>/<version>` on
@@ -57,6 +67,15 @@ export interface KratyClientOptions {
    * the right thing on every platform the SDK ships on.
    */
   secretStore?: SecretStore;
+
+  /**
+   * Persists the finalization catch-up registry (docs/05b) — the boards the
+   * player is in, so `checkFinalizations()` can report ones that ended while
+   * they were away. Defaults to `localStorage` when available, else in-memory
+   * (catch-up then only spans the current process). Wire your own for
+   * native storage.
+   */
+  membershipStore?: MembershipStore;
   /** Override only for testing / staging. Production clients always hit the default. */
   baseUrl?: string;
   /** Per-request timeout in milliseconds. Defaults to 10s. */
@@ -141,6 +160,7 @@ export class KratyClient {
   private _playerSecret: string | null;
   private _activeExternalPlayerId: string | null;
   private readonly _secretStore: SecretStore;
+  private readonly _finalization: FinalizationTracker;
   private readonly generateIdempotencyKey: () => string;
   private readonly onRequest?: (info: RequestInfo) => void;
   // Inflight register dedupe — concurrent first-touch calls on a
@@ -170,6 +190,64 @@ export class KratyClient {
     this._secretStore = opts.secretStore ?? defaultSecretStore();
     this.generateIdempotencyKey = opts.generateIdempotencyKey ?? defaultIdempotencyKey;
     if (opts.onRequest) this.onRequest = opts.onRequest;
+    this._finalization = new FinalizationTracker({
+      store: opts.membershipStore ?? defaultMembershipStore(),
+      // Never force-register during catch-up: only the current active player.
+      getActivePlayerId: async () => this._activeExternalPlayerId,
+      readEventBoard: async (leaderboardId) => {
+        const ext = this._activeExternalPlayerId;
+        if (!ext) return null;
+        const params = new URLSearchParams({ includeSelf: 'true', externalId: ext, limit: '1' });
+        try {
+          const env = await this.request<{
+            data: {
+              finalized: boolean;
+              finalizedReason: FinalizationReason | null;
+              self: { rank: number; score: number } | null;
+            };
+          }>('GET', `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}?${params.toString()}`);
+          return {
+            finalized: env.data.finalized,
+            reason: env.data.finalizedReason,
+            self: env.data.self,
+          };
+        } catch {
+          return null; // unreadable → treat as still-active
+        }
+      },
+    });
+  }
+
+  // ── Finalization catch-up (docs/05b) ──────────────────────────────
+  // Public on the `Kraty` facade; resource clients reach the internal
+  // track/route hooks via `this.client`.
+
+  /** Register a handler for board finalizations (live SSE + catch-up). */
+  onFinalized(cb: FinalizationListener): () => void {
+    return this._finalization.onFinalized(cb);
+  }
+  /** Poll tracked boards; report + return any that finalized while away. */
+  checkFinalizations(): Promise<FinalizationResult[]> {
+    return this._finalization.checkFinalizations();
+  }
+  /** Acknowledge a handled finalization — drops it from the registry. */
+  dismiss(ref: MembershipRef): Promise<void> {
+    return this._finalization.dismiss(ref);
+  }
+  /** Bulk-drop every already-reported membership. Returns the count. */
+  clearReported(): Promise<number> {
+    return this._finalization.clearReported();
+  }
+  /** @internal — resource clients record a joined board. */
+  trackMembership(ref: MembershipRef, label?: string): Promise<void> {
+    return this._finalization.track(ref, label);
+  }
+  /** @internal — the subscribe loop routes a live `finalized` event here. */
+  routeFinalized(
+    leaderboardId: string,
+    data: { reason?: string; standings?: FinalizationResult['standings']; eventId?: string },
+  ): Promise<void> {
+    return this._finalization.onStreamFinalized(leaderboardId, data);
   }
 
   // ── Accessors for the SSE leaderboard stream ──────────────────────
@@ -509,6 +587,16 @@ function defaultSecretStore(): SecretStore {
     return new LocalStorageSecretStore(ls);
   }
   return new InMemorySecretStore();
+}
+
+/** Same runtime pick as {@link defaultSecretStore}, for the membership
+ *  registry: localStorage when present, else in-memory. */
+function defaultMembershipStore(): MembershipStore {
+  const ls = (globalThis as { localStorage?: WebStorageLike }).localStorage;
+  if (ls && typeof ls.getItem === 'function' && typeof ls.setItem === 'function') {
+    return new LocalStorageMembershipStore(ls);
+  }
+  return new InMemoryMembershipStore();
 }
 
 /**

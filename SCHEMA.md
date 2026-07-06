@@ -18,12 +18,22 @@ ensureIdentity(): Promise<{ externalPlayerId: string; secret: string }>
 signIn(externalPlayerId: string, secret: string): Promise<void>
 logout(): Promise<void>
 
+// Finalization catch-up (docs/05b). Fires exactly once per board across the
+// live SSE `finalized` event AND boards that ended while the player was away.
+onFinalized(cb: (result: FinalizationResult) => void): () => void  // returns unsubscribe
+checkFinalizations(): Promise<FinalizationResult[]>  // call on app foreground/reconnect
+dismiss(ref: MembershipRef): Promise<void>           // ack one handled result
+clearReported(): Promise<number>                     // bulk-drop delivered entries
+
 // Static identity helpers
 static readStoredIdentity(secretStore: SecretStore): Promise<StoredIdentity | null>
 static restoreStoredIdentity(client: KratyClient, identity: StoredIdentity, secretStore: SecretStore): Promise<void>
 static clearStoredIdentity(secretStore: SecretStore): Promise<void>
 static connectAsPlayer(opts: KratyClientOptions, externalPlayerId: string | null, secretStore: SecretStore, autoRotateOnConflict?: boolean): Promise<Kraty>
 ```
+
+`FinalizationResult` = `{ ref: MembershipRef; reason: FinalizationReason; self: { rank, score } | null; standings?: FinalStanding[]; eventKey? }`.
+`reason` (a `FinalizationReason` const, not a raw string): `SessionTerminated` \| `WindowClosed` \| `PeriodRolled` \| `Finalized`. Kinds use the `MembershipKind` / `StandingKind` consts. Registry persistence is injectable via `KratyClientOptions.membershipStore` (`LocalStorageMembershipStore` in the browser, `InMemoryMembershipStore` otherwise).
 
 ## `kraty.events` — `EventsClient`
 
@@ -108,6 +118,8 @@ subscribe(
 `subscribe` opts:
 - `pollIntervalMs` — default 15_000; 0 disables polling (SSE-only)
 - `onError` — receives transport / parse errors. Non-fatal; the poll keeps running
+
+`EventLeaderboard` read response includes `finalized: boolean` and, when finalized, `finalizedReason: 'session_terminated' | 'window_closed' | null` — powers the finalization catch-up's session-vs-window distinction. The `finalized` SSE event carries `reason` + `standings`.
 
 ## `kraty.grants` — `GrantsClient`
 

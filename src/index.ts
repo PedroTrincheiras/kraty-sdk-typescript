@@ -47,7 +47,28 @@ export {
 export type {
   LeaderboardStream,
   LeaderboardStreamEvent,
+  LeaderboardFinalizedData,
+  LeaderboardStanding,
 } from './leaderboard-stream.js';
+export {
+  FinalizationTracker,
+  InMemoryMembershipStore,
+  LocalStorageMembershipStore,
+  MembershipKind,
+  FinalizationReason,
+  StandingKind,
+} from './finalization.js';
+export type {
+  MembershipStore,
+  MembershipRef,
+  EventBoardRef,
+  SharedBoardRef,
+  TrackedMembership,
+  FinalStanding,
+  FinalizationResult,
+  FinalizationListener,
+  KeyValueStorage,
+} from './finalization.js';
 export {
   KratyApiError,
   KratyNetworkError,
@@ -170,6 +191,26 @@ export class Kraty {
    */
   logout(): Promise<void> {
     return this.client.logout();
+  }
+
+  /**
+   * Finalization catch-up (docs/05b). `onFinalized` fires when a board the
+   * player is in ends — live over SSE while subscribed, OR via
+   * `checkFinalizations()` for boards that finalized while they were away
+   * (call it on app foreground / reconnect). Both paths deliver exactly once.
+   * `dismiss`/`clearReported` acknowledge handled results so they leave storage.
+   */
+  onFinalized(cb: Parameters<KratyClient['onFinalized']>[0]): () => void {
+    return this.client.onFinalized(cb);
+  }
+  checkFinalizations(): ReturnType<KratyClient['checkFinalizations']> {
+    return this.client.checkFinalizations();
+  }
+  dismiss(ref: Parameters<KratyClient['dismiss']>[0]): Promise<void> {
+    return this.client.dismiss(ref);
+  }
+  clearReported(): Promise<number> {
+    return this.client.clearReported();
   }
 
   /**
