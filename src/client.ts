@@ -18,16 +18,16 @@ import {
 /**
  * SDK name + version, sent as `X-Kraty-SDK: <name>/<version>` on
  * every request. Lets the backend tell which SDK + version sent a
- * given request — useful for debugging (an old SDK in the wild
+ * given request, useful for debugging (an old SDK in the wild
  * hitting a new backend) and for graceful deprecation handling.
  *
  * Bump in lockstep with package.json `version`. The OpenAPI parity
- * check doesn't enforce this — it's a manual coupling — but the
+ * check doesn't enforce this (it's a manual coupling) but the
  * value is stable enough that a stale const here is a minor bug,
  * not a contract break.
  */
 const SDK_NAME = '@kraty/sdk';
-const SDK_VERSION = '0.0.1';
+const SDK_VERSION = '0.9.0';
 const SDK_USER_AGENT = `${SDK_NAME}/${SDK_VERSION}`;
 
 /**
@@ -40,7 +40,7 @@ export interface KratyClientOptions {
    * Per-player secret. When set, the client attaches
    * `X-Player-Secret: <value>` to every request. Required by all
    * player-scoped routes (`events.start`, `events.progress`,
-   * `grants.*`, `inventory.*`, `wallet.*`) — without it those return
+   * `grants.*`, `inventory.*`, `wallet.*`); without it those return
    * 401 `player_secret_invalid`. Use `Kraty.connectAsPlayer` to
    * bootstrap this instead of wiring it by hand.
    */
@@ -49,7 +49,7 @@ export interface KratyClientOptions {
    * The `externalPlayerId` this SDK instance is authenticated as.
    * When set, player-scoped methods default to this id and skip
    * auto-register on first call. Leave unset for self-serve
-   * signups — the SDK then auto-generates a UUID on first use
+   * signups; the SDK then auto-generates a UUID on first use
    * and persists it in [secretStore].
    */
   activeExternalPlayerId?: string;
@@ -63,13 +63,13 @@ export interface KratyClientOptions {
    *     store. Wire your own (Keychain, encrypted storage,
    *     session table on your backend, …) if you need durability.
    *
-   * Most game clients never need to touch this — the default does
+   * Most game clients never need to touch this; the default does
    * the right thing on every platform the SDK ships on.
    */
   secretStore?: SecretStore;
 
   /**
-   * Persists the finalization catch-up registry (docs/05b) — the boards the
+   * Persists the finalization catch-up registry (docs/05b): the boards the
    * player is in, so `checkFinalizations()` can report ones that ended while
    * they were away. Defaults to `localStorage` when available, else in-memory
    * (catch-up then only spans the current process). Wire your own for
@@ -154,16 +154,19 @@ export class KratyClient {
   private readonly retry: RetryConfig;
   private readonly fetchImpl: typeof fetch;
   private readonly _authHeader: string;
-  // Identity is mutable on purpose — the lazy `ensureIdentity()`
+  // Identity is mutable on purpose: the lazy `ensureIdentity()`
   // call may register or restore a player after construction and
   // mutate these in place so subsequent calls skip the round-trip.
   private _playerSecret: string | null;
   private _activeExternalPlayerId: string | null;
+  // The fake name + avatar the backend mints on register. Populated on the
+  // register path of ensureIdentity / connectAsPlayer; null until then.
+  private _syntheticIdentity: { name: string; avatar?: string | null } | null = null;
   private readonly _secretStore: SecretStore;
   private readonly _finalization: FinalizationTracker;
   private readonly generateIdempotencyKey: () => string;
   private readonly onRequest?: (info: RequestInfo) => void;
-  // Inflight register dedupe — concurrent first-touch calls on a
+  // Inflight register dedupe: concurrent first-touch calls on a
   // freshly-constructed client share the same registration so we
   // don't fire two POST /register against the server.
   private _identityInit: Promise<{ externalPlayerId: string; secret: string }> | null = null;
@@ -178,7 +181,7 @@ export class KratyClient {
     this.fetchImpl = opts.fetch ?? globalThis.fetch;
     if (!this.fetchImpl) {
       throw new TypeError(
-        'KratyClient: no fetch implementation available — pass `fetch` in options or run on Node 18+ / a modern runtime',
+        'KratyClient: no fetch implementation available. Pass `fetch` in options or run on Node 18+ / a modern runtime',
       );
     }
     this._authHeader = `Bearer ${opts.apiKey}`;
@@ -194,7 +197,7 @@ export class KratyClient {
       store: opts.membershipStore ?? defaultMembershipStore(),
       // Never force-register during catch-up: only the current active player.
       getActivePlayerId: async () => this._activeExternalPlayerId,
-      readEventBoard: async (leaderboardId) => {
+      readEventLeaderboard: async (leaderboardId) => {
         const ext = this._activeExternalPlayerId;
         if (!ext) return null;
         const params = new URLSearchParams({ includeSelf: 'true', externalId: ext, limit: '1' });
@@ -230,7 +233,7 @@ export class KratyClient {
   checkFinalizations(): Promise<FinalizationResult[]> {
     return this._finalization.checkFinalizations();
   }
-  /** Acknowledge a handled finalization — drops it from the registry. */
+  /** Acknowledge a handled finalization; drops it from the registry. */
   dismiss(ref: MembershipRef): Promise<void> {
     return this._finalization.dismiss(ref);
   }
@@ -238,11 +241,11 @@ export class KratyClient {
   clearReported(): Promise<number> {
     return this._finalization.clearReported();
   }
-  /** @internal — resource clients record a joined board. */
+  /** @internal. Resource clients record a joined board. */
   trackMembership(ref: MembershipRef, label?: string): Promise<void> {
     return this._finalization.track(ref, label);
   }
-  /** @internal — the subscribe loop routes a live `finalized` event here. */
+  /** @internal. The subscribe loop routes a live `finalized` event here. */
   routeFinalized(
     leaderboardId: string,
     data: { reason?: string; standings?: FinalizationResult['standings']; eventId?: string },
@@ -267,6 +270,18 @@ export class KratyClient {
    * null until `ensureIdentity()` has run at least once.
    */
   get activeExternalPlayerId(): string | null { return this._activeExternalPlayerId; }
+  /**
+   * The player's generated fake identity (name + avatar), if one has been
+   * resolved via register/connect. Null on resumed sessions where the client
+   * restored a stored secret without re-registering. See PlayerRegistration.
+   */
+  get syntheticIdentity(): { name: string; avatar?: string | null } | null {
+    return this._syntheticIdentity;
+  }
+  /** @internal. Seeded by `Kraty.connectAsPlayer` after a register round-trip. */
+  setSyntheticIdentity(v: { name: string; avatar?: string | null } | null): void {
+    this._syntheticIdentity = v;
+  }
   /** @internal */
   get fetchForStreaming(): typeof fetch { return this.fetchImpl; }
   /** @internal */
@@ -277,14 +292,14 @@ export class KratyClient {
   /**
    * Resolve the active player, registering a fresh one if none
    * exists. Called transparently by every player-scoped resource
-   * method — game code rarely needs to invoke this directly.
+   * method, so game code rarely needs to invoke this directly.
    *
    * Resolution order:
    *  1. Constructor `activeExternalPlayerId` (with secret if also
-   *     supplied) — explicit, no I/O needed.
-   *  2. SecretStore's persisted active id + matching secret — the
+   *     supplied); explicit, no I/O needed.
+   *  2. SecretStore's persisted active id + matching secret: the
    *     "resume previous session" path.
-   *  3. Fresh self-serve signup — generate a UUID, POST
+   *  3. Fresh self-serve signup: generate a UUID, POST
    *     /sdk/v1/players/:id/register, persist the secret, install
    *     it on the client.
    *
@@ -316,12 +331,11 @@ export class KratyClient {
       // Path 3: fresh signup. Generate a UUID; if the dev supplied
       // a constructor `activeExternalPlayerId` we use that instead.
       const newId = explicitActive ?? generateExternalPlayerId();
-      const res = await this.request<{ data: { secret: string } }>(
-        'POST',
-        `/sdk/v1/players/${encodeURIComponent(newId)}/register`,
-        {},
-      );
+      const res = await this.request<{
+        data: { secret: string; syntheticIdentity?: { name: string; avatar?: string | null } | null };
+      }>('POST', `/sdk/v1/players/${encodeURIComponent(newId)}/register`, {});
       const secret = res.data.secret;
+      this._syntheticIdentity = res.data.syntheticIdentity ?? null;
       await this._secretStore.write(newId, secret);
       await this._secretStore.writeActiveExternalPlayerId?.(newId);
       this._activeExternalPlayerId = newId;
@@ -331,7 +345,7 @@ export class KratyClient {
     try {
       return await this._identityInit;
     } finally {
-      // Don't cache the promise once it's resolved — next call
+      // Don't cache the promise once it's resolved; the next call
       // takes the fast path through the field check at the top.
       this._identityInit = null;
     }
@@ -404,7 +418,7 @@ export class KratyClient {
         if (res.ok) {
           const body = (await parseJson(res)) as unknown;
           // The backend uses 202 + `{ error: { code, message } }` to
-          // signal "valid request, but not ready yet" — currently
+          // signal "valid request, but not ready yet"; currently
           // only `lobby_forming`. Treat any 2xx response carrying an
           // error envelope as an API error so SDK consumers can
           // `switch (err.code)` consistently across status codes.
@@ -452,7 +466,7 @@ export class KratyClient {
         throw wrapped;
       }
     }
-    // Shouldn't be reachable — the loop always returns or throws — but
+    // Shouldn't be reachable (the loop always returns or throws) but
     // appease the typechecker.
     throw lastErr instanceof Error ? lastErr : new KratyNetworkError('exhausted retries');
   }
@@ -576,7 +590,7 @@ function defaultSecretStore(): SecretStore {
   const ls = (globalThis as { localStorage?: WebStorageLike }).localStorage;
   // Pick localStorage only when it actually exposes the expected
   // surface. Some test environments (Node + happy-dom misconfigured)
-  // define a stub object that throws on use — falling back to the
+  // define a stub object that throws on use; falling back to the
   // in-memory store keeps unit tests boring instead of crashing.
   if (
     ls &&
@@ -603,7 +617,7 @@ function defaultMembershipStore(): MembershipStore {
  * Generate a self-serve `externalPlayerId` for a fresh signup.
  * Prefixed so a glance at the audit log distinguishes
  * SDK-minted ids from your own (which typically come from your
- * authentication backend). UUID v4 under the hood — collision
+ * authentication backend). UUID v4 under the hood, so collision
  * resistance is good enough for the lifetime of a single device.
  */
 function generateExternalPlayerId(): string {
@@ -612,7 +626,7 @@ function generateExternalPlayerId(): string {
       ? globalThis.crypto.randomUUID()
       : // Tiny fallback for ancient runtimes that don't have
         // crypto.randomUUID. Not cryptographically strong on its
-        // own — we rely on the per-player secret for security,
+        // own; we rely on the per-player secret for security,
         // not on the id being unguessable.
         Array.from({ length: 32 }, () =>
           Math.floor(Math.random() * 16).toString(16),
@@ -626,7 +640,7 @@ async function asApiError(res: Response): Promise<KratyApiError> {
   try {
     payload = text ? (JSON.parse(text) as { error?: KratyErrorPayload }) : undefined;
   } catch {
-    /* swallow — fall through to a synthesized error */
+    /* swallow, fall through to a synthesized error */
   }
   const err = payload?.error;
   if (err) {

@@ -1,4 +1,4 @@
-# Kraty TypeScript SDK — public surface (v0.6.0)
+# Kraty TypeScript SDK: public surface (v0.6.0)
 
 Canonical method + type listing for `@kraty/sdk`. Update this file in
 the same commit as any signature change.
@@ -6,7 +6,7 @@ the same commit as any signature change.
 All methods sit on the `Kraty` facade unless noted. Every async method
 returns a `Promise`. The optional `as` field on resource calls is for
 server-side tooling addressing a different player from a single SDK
-instance — game code never sets it.
+instance. Game code never sets it.
 
 ## `Kraty` facade
 
@@ -35,7 +35,7 @@ static connectAsPlayer(opts: KratyClientOptions, externalPlayerId: string | null
 `FinalizationResult` = `{ ref: MembershipRef; reason: FinalizationReason; self: { rank, score } | null; standings?: FinalStanding[]; eventKey? }`.
 `reason` (a `FinalizationReason` const, not a raw string): `SessionTerminated` \| `WindowClosed` \| `PeriodRolled` \| `Finalized`. Kinds use the `MembershipKind` / `StandingKind` consts. Registry persistence is injectable via `KratyClientOptions.membershipStore` (`LocalStorageMembershipStore` in the browser, `InMemoryMembershipStore` otherwise).
 
-## `kraty.events` — `EventsClient`
+## `kraty.events`: `EventsClient`
 
 ```ts
 listForPlayer(opts?: { as?: string }): Promise<EventListing[]>
@@ -43,7 +43,7 @@ start(eventKey: string, playerContext?: PlayerContext, opts?: { idempotencyKey?:
 progress(eventKey: string, attemptId: string, input: ProgressInput, opts?: { as?: string }): Promise<ProgressResponse>
 ```
 
-## `kraty.leaderboards` — `LeaderboardsClient`
+## `kraty.leaderboards`: `LeaderboardsClient`
 
 The dashboard-configured cross-event boards. Addressed by stable
 game-scoped **key**. Wire endpoints:
@@ -63,31 +63,31 @@ listPeriods(key: string, opts?: { limit?: number }): Promise<LeaderboardPeriods>
 ```
 
 `LeaderboardReadOptions`:
-- `limit?: number` — 1–200, default 50 server-side
-- `segment?: string` — bucket value; required only for `context` segmentation. Omit for `progression`-segmented boards (server derives the caller's division); unsegmented boards ignore it
-- `period?: 'current' | string` — `'current'` (default) or an ISO timestamp from `LeaderboardPeriod.periodStartedAt`
-- `includeSelf?: boolean` — when true, response includes `self: { rank, score }` (live periods only)
-- `externalId?: string` — required when `includeSelf` is true; lazily resolved otherwise
+- `limit?: number`: 1–200, default 50 server-side
+- `segment?: string`: bucket value; required only for `context` segmentation. Omit for `progression`-segmented boards (server derives the caller's division); unsegmented boards ignore it
+- `period?: 'current' | string`: `'current'` (default) or an ISO timestamp from `LeaderboardPeriod.periodStartedAt`
+- `includeSelf?: boolean`: when true, response includes `self: { rank, score }` (live periods only)
+- `externalId?: string`: required when `includeSelf` is true; lazily resolved otherwise
 
-`join` — add the active player to the board at score 0 without submitting a score; returns the current standings with `joined: true`. Idempotent (never resets an existing score). Pass `segment` for `context` boards; omit for `progression` boards (server derives the division from the caller's balance).
+`join`: add the active player to the board at score 0 without submitting a score; returns the current standings with `joined: true`. Idempotent (never resets an existing score). Pass `segment` for `context` boards; omit for `progression` boards (server derives the division from the caller's balance).
 
-`standings` — multi-segment read. Returns one `StandingsSegment` block per segment selected by `scope`. `StandingsReadOptions`:
-- `scope?: 'self_segment' | 'mine' | 'segment' | 'all'` — default `'all'`
-- `segment?: string` — required when `scope: 'segment'` on a segmented board
-- `period?: 'current' | string` — default `'current'`
-- `externalId?: string` — auto-resolved for `self_segment` / `mine`
-- `limit?: number` — per-segment top-N (1..200, default 50)
-- `maxSegments?: number` — cap on returned segment blocks (1..100, default 20)
+`standings`: multi-segment read. Returns one `StandingsSegment` block per segment selected by `scope`. `StandingsReadOptions`:
+- `scope?: 'self_segment' | 'mine' | 'segment' | 'all'`: default `'all'`
+- `segment?: string`: required when `scope: 'segment'` on a segmented board
+- `period?: 'current' | string`: default `'current'`
+- `externalId?: string`: auto-resolved for `self_segment` / `mine`
+- `limit?: number`: per-segment top-N (1..200, default 50)
+- `maxSegments?: number`: cap on returned segment blocks (1..100, default 20)
 
-`BoardStandings`: `key`, `sharedLeaderboardId`, `scope`, `resetCadence`, `scoreAggregation`, `period`, `segments: StandingsSegment[]`, `segmentsTruncated: boolean`.
+`BoardStandings`: `key`, `leaderboardId`, `scope`, `resetCadence`, `scoreAggregation`, `period`, `segments: StandingsSegment[]`, `segmentsTruncated: boolean`.
 `StandingsSegment`: `segment: string | null`, `participated: boolean`, `selfRank: number | null`, `entries: LeaderboardEntry[]`.
 
-`submitScore` — submit a score for the active player directly to the board, outside an event attempt. `segment` is required only for `context` segmentation; omit for `progression` boards. Errors: `client_scoring_disabled` (403, board is server-only), `score_not_supported` (400, progression-ranked board), `not_found` (404), `validation_failed` (400). Returns `LeaderboardScoreResult`:
+`submitScore`: submit a score for the active player directly to the board, outside an event attempt. `segment` is required only for `context` segmentation; omit for `progression` boards. Errors: `client_scoring_disabled` (403, board is server-only), `score_not_supported` (400, progression-ranked board), `not_found` (404), `validation_failed` (400). Returns `LeaderboardScoreResult`:
 - `leaderboardId: string`
 - `score: number`
 - `rank: number | null`
 
-## `kraty.eventLeaderboards` — `EventLeaderboardsClient`
+## `kraty.eventLeaderboards`: `EventLeaderboardsClient`
 
 The auto-generated per-event-window leaderboard. Addressed by the
 **UUID** returned in `events.start(...)`'s `attempt.leaderboardId`.
@@ -108,7 +108,7 @@ subscribe(
 ): { close: () => Promise<void> }
 ```
 
-`join` — enrols the active player in the current event window at score 0 without starting a scoring attempt; returns the board with `joined: true`. Idempotent. Throws `KratyApiError` with code `conflict` (409) once the window has finalized.
+`join`: enrols the active player in the current event window at score 0 without starting a scoring attempt; returns the board with `joined: true`. Idempotent. Throws `KratyApiError` with code `conflict` (409) once the window has finalized.
 
 `EventLeaderboardReadOptions`:
 - `limit?: number`
@@ -116,12 +116,12 @@ subscribe(
 - `externalId?: string`
 
 `subscribe` opts:
-- `pollIntervalMs` — default 15_000; 0 disables polling (SSE-only)
-- `onError` — receives transport / parse errors. Non-fatal; the poll keeps running
+- `pollIntervalMs`: default 15_000; 0 disables polling (SSE-only)
+- `onError`: receives transport / parse errors. Non-fatal; the poll keeps running
 
-`EventLeaderboard` read response includes `finalized: boolean` and, when finalized, `finalizedReason: 'session_terminated' | 'window_closed' | null` — powers the finalization catch-up's session-vs-window distinction. The `finalized` SSE event carries `reason` + `standings`.
+`EventLeaderboard` read response includes `finalized: boolean` and, when finalized, `finalizedReason: 'session_terminated' | 'window_closed' | null`, which powers the finalization catch-up's session-vs-window distinction. The `finalized` SSE event carries `reason` + `standings`.
 
-## `kraty.grants` — `GrantsClient`
+## `kraty.grants`: `GrantsClient`
 
 ```ts
 listPending(opts?: { limit?: number; as?: string }): Promise<Grant[]>
@@ -131,38 +131,38 @@ collectAll(opts?: { as?: string }): Promise<CollectAllResult>
 ```
 
 `CollectAllResult`:
-- `opened: Grant[]` — crate grants whose contents were rolled
-- `claimed: Grant[]` — reward grants flipped to claimed
-- `failures: CollectAllFailure[]` — per-grant errors
+- `opened: Grant[]`: crate grants whose contents were rolled
+- `claimed: Grant[]`: reward grants flipped to claimed
+- `failures: CollectAllFailure[]`: per-grant errors
 - `hasFailures: boolean`
 
-## `kraty.lobbies` — `LobbiesClient`
+## `kraty.lobbies`: `LobbiesClient`
 
 ```ts
 read(lobbyId: string): Promise<Lobby>
 ```
 
-## `kraty.inventory` — `InventoryClient`
+## `kraty.inventory`: `InventoryClient`
 
 ```ts
 list(opts?: { as?: string }): Promise<PlayerItemHolding[]>
 consume(itemKey: string, input: ConsumeItemInput, opts?: { as?: string }): Promise<ConsumeItemResult>
 ```
 
-## `kraty.wallet` — `WalletClient`
+## `kraty.wallet`: `WalletClient`
 
 ```ts
 list(opts?: { as?: string }): Promise<PlayerWalletHolding[]>
 debit(economyKey: string, input: DebitWalletInput, opts?: { as?: string }): Promise<DebitWalletResult>
 ```
 
-## `kraty.players` — `PlayersClient`
+## `kraty.players`: `PlayersClient`
 
 ```ts
 register(externalPlayerId: string, opts?: { force?: boolean }): Promise<PlayerRegistration>
 ```
 
-## `kraty.catalog` — `CatalogClient`
+## `kraty.catalog`: `CatalogClient`
 
 ```ts
 get(): Promise<Catalog>
@@ -199,7 +199,7 @@ LocalStorageSecretStore   // browsers, wraps window.localStorage
 ## Errors
 
 ```ts
-class KratyApiError extends Error      // non-2xx — has code (KratyErrorCode), status, payload
+class KratyApiError extends Error      // non-2xx; has code (KratyErrorCode), status, payload
 class KratyNetworkError extends Error  // transport / parse failure
 isLobbyForming(err: unknown): boolean  // type-narrowing helper
 ```

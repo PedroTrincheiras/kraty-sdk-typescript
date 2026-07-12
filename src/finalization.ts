@@ -1,5 +1,5 @@
 /**
- * Client finalization catch-up — per docs/05b.
+ * Client finalization catch-up, per docs/05b.
  *
  * Tracks the boards the player is currently in (session/event boards) and lets
  * the app learn that one FINALIZED while the player was away, through the same
@@ -7,7 +7,7 @@
  *
  * CORE INVARIANT: a finalization is recorded through EXACTLY ONE writer,
  * {@link FinalizationTracker.resolveFinalized}. Both the live SSE `finalized`
- * event AND `checkFinalizations()` route through it — so the SSE path persists
+ * event AND `checkFinalizations()` route through it, so the SSE path persists
  * `status: 'finalized'` + `reportedAt` to the registry, not just fires the
  * callback. Whichever path arrives first wins; the other no-ops on
  * `reportedAt`. That is what makes delivery exactly-once across live + catch-up.
@@ -15,14 +15,14 @@
 
 /**
  * The kind of board a membership refers to. Use these constants instead of
- * hardcoding the wire strings — e.g. `MembershipKind.EventBoard`, never
- * `'event_board'`. Values are the on-the-wire/persisted strings.
+ * hardcoding the wire strings, e.g. `MembershipKind.EventLeaderboard`, never
+ * `'event_leaderboard'`. Values are the on-the-wire/persisted strings.
  */
 export const MembershipKind = {
   /** A per-event (or per-session) board a player is placed on. */
-  EventBoard: 'event_board',
-  /** A recurring shared leaderboard (catch-up deferred — see docs/05b). */
-  SharedBoard: 'shared_board',
+  EventLeaderboard: 'event_leaderboard',
+  /** A recurring leaderboard (catch-up deferred; see docs/05b). */
+  Leaderboard: 'leaderboard',
 } as const;
 export type MembershipKind = (typeof MembershipKind)[keyof typeof MembershipKind];
 
@@ -35,7 +35,7 @@ export const FinalizationReason = {
   SessionTerminated: 'session_terminated',
   /** The event window closed. */
   WindowClosed: 'window_closed',
-  /** A recurring shared board rolled to a new period. */
+  /** A recurring leaderboard rolled to a new period. */
   PeriodRolled: 'period_rolled',
   /** Ended, but a catch-up read couldn't distinguish the precise cause. */
   Finalized: 'finalized',
@@ -49,24 +49,24 @@ export const StandingKind = {
 } as const;
 export type StandingKind = (typeof StandingKind)[keyof typeof StandingKind];
 
-export interface EventBoardRef {
-  kind: typeof MembershipKind.EventBoard;
+export interface EventLeaderboardRef {
+  kind: typeof MembershipKind.EventLeaderboard;
   leaderboardId: string;
   eventKey?: string;
 }
-export interface SharedBoardRef {
-  kind: typeof MembershipKind.SharedBoard;
+export interface LeaderboardRef {
+  kind: typeof MembershipKind.Leaderboard;
   key: string;
   /** ISO start of the period the player is in. */
   period: string;
 }
-export type MembershipRef = EventBoardRef | SharedBoardRef;
+export type MembershipRef = EventLeaderboardRef | LeaderboardRef;
 
 export interface TrackedMembership {
   ref: MembershipRef;
   status: 'active' | 'finalized';
   joinedAt: string;
-  /** Set when onFinalized has fired — the dedupe guard. */
+  /** Set when onFinalized has fired; the dedupe guard. */
   reportedAt?: string;
   label?: string;
 }
@@ -95,7 +95,7 @@ export interface MembershipStore {
   save(playerId: string, entries: TrackedMembership[]): Promise<void>;
 }
 
-/** Default store — in-process only; catch-up won't survive a restart. */
+/** Default store: in-process only; catch-up won't survive a restart. */
 export class InMemoryMembershipStore implements MembershipStore {
   private readonly byPlayer = new Map<string, TrackedMembership[]>();
   async load(playerId: string): Promise<TrackedMembership[]> {
@@ -106,14 +106,14 @@ export class InMemoryMembershipStore implements MembershipStore {
   }
 }
 
-/** Minimal key-value surface — `globalThis.localStorage` satisfies it, but the
+/** Minimal key-value surface; `globalThis.localStorage` satisfies it, but the
  *  SDK tsconfig has no DOM lib, so we declare only what we use. */
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
 
-/** Browser store — persists across restarts via localStorage. */
+/** Browser store: persists across restarts via localStorage. */
 export class LocalStorageMembershipStore implements MembershipStore {
   constructor(private readonly ls: KeyValueStorage) {}
   private key(playerId: string): string {
@@ -136,10 +136,10 @@ export class LocalStorageMembershipStore implements MembershipStore {
 
 function sameRef(a: MembershipRef, b: MembershipRef): boolean {
   if (a.kind !== b.kind) return false;
-  if (a.kind === MembershipKind.EventBoard && b.kind === MembershipKind.EventBoard) {
+  if (a.kind === MembershipKind.EventLeaderboard && b.kind === MembershipKind.EventLeaderboard) {
     return a.leaderboardId === b.leaderboardId;
   }
-  if (a.kind === MembershipKind.SharedBoard && b.kind === MembershipKind.SharedBoard) {
+  if (a.kind === MembershipKind.Leaderboard && b.kind === MembershipKind.Leaderboard) {
     return a.key === b.key && a.period === b.period;
   }
   return false;
@@ -156,7 +156,7 @@ export interface FinalizationTrackerDeps {
    *  (`SessionTerminated`) from the whole event window closing (`WindowClosed`);
    *  omit/null when unknown. Returns null when the board can't be read (treat as
    *  still-active). */
-  readEventBoard(leaderboardId: string): Promise<{
+  readEventLeaderboard(leaderboardId: string): Promise<{
     finalized: boolean;
     reason?: FinalizationReason | null;
     self: { rank: number; score: number } | null;
@@ -221,7 +221,7 @@ export class FinalizationTracker {
 
   /**
    * Live SSE path: a `finalized` stream event arrived for `leaderboardId`.
-   * Routes through the same writer as catch-up — persists to the registry AND
+   * Routes through the same writer as catch-up, persisting to the registry AND
    * fires the callback. (This is the invariant in docs/05b.)
    */
   async onStreamFinalized(
@@ -230,7 +230,7 @@ export class FinalizationTracker {
   ): Promise<void> {
     const playerId = await this.deps.getActivePlayerId();
     if (!playerId) return;
-    const ref: MembershipRef = { kind: MembershipKind.EventBoard, leaderboardId };
+    const ref: MembershipRef = { kind: MembershipKind.EventLeaderboard, leaderboardId };
     const reason: FinalizationReason =
       data.reason === FinalizationReason.SessionTerminated ||
       data.reason === FinalizationReason.WindowClosed
@@ -258,8 +258,8 @@ export class FinalizationTracker {
     const active = entries.filter((e) => e.status === 'active');
     const out: FinalizationResult[] = [];
     for (const e of active) {
-      if (e.ref.kind !== MembershipKind.EventBoard) continue; // shared_board catch-up: see docs/05b (deferred)
-      const read = await this.deps.readEventBoard(e.ref.leaderboardId);
+      if (e.ref.kind !== MembershipKind.EventLeaderboard) continue; // leaderboard catch-up: see docs/05b (deferred)
+      const read = await this.deps.readEventLeaderboard(e.ref.leaderboardId);
       if (!read?.finalized) continue;
       const result: FinalizationResult = {
         ref: e.ref,
@@ -276,7 +276,7 @@ export class FinalizationTracker {
   }
 
   /**
-   * Acknowledge a finalization once the app has shown it — removes that
+   * Acknowledge a finalization once the app has shown it; removes that
    * membership from the registry so it never surfaces again and doesn't linger
    * in storage. No-op if the ref isn't tracked. Call from your `onFinalized`
    * handler (or after rendering the result screen).
@@ -292,7 +292,7 @@ export class FinalizationTracker {
   }
 
   /**
-   * Bulk cleanup — drop every already-reported (finalized + delivered) entry.
+   * Bulk cleanup: drop every already-reported (finalized + delivered) entry.
    * Handy after a results screen that batch-shows all pending finalizations.
    * Returns how many were removed.
    */

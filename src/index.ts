@@ -61,8 +61,8 @@ export {
 export type {
   MembershipStore,
   MembershipRef,
-  EventBoardRef,
-  SharedBoardRef,
+  EventLeaderboardRef,
+  LeaderboardRef,
   TrackedMembership,
   FinalStanding,
   FinalizationResult,
@@ -95,6 +95,7 @@ export type {
   EventListing,
   EventLeaderboard,
   EventLeaderboardReadOptions,
+  FinishAttemptResponse,
   Grant,
   GrantKind,
   GrantStatus,
@@ -125,7 +126,7 @@ export type {
 } from './types.js';
 
 /**
- * Convenience facade — instantiate one `Kraty` instead of wiring up
+ * Convenience facade: instantiate one `Kraty` instead of wiring up
  * `KratyClient` + each resource client by hand. All resource clients
  * share the same underlying `KratyClient` so retry config, telemetry,
  * and the HTTP connection pool are shared.
@@ -173,9 +174,24 @@ export class Kraty {
   }
 
   /**
+   * The player's generated fake identity (`{ name, avatar }`) or null.
+   * Populated after a fresh register (via `connectAsPlayer` or the first
+   * player-scoped call that auto-registers). Use it to greet the player or
+   * show them on a public board without their real profile:
+   *
+   * ```ts
+   * const kraty = await Kraty.connectAsPlayer({ options, externalPlayerId, secretStore });
+   * greet(kraty.syntheticIdentity?.name ?? 'Player'); // "Crazy Panda"
+   * ```
+   */
+  get syntheticIdentity(): { name: string; avatar?: string | null } | null {
+    return this.client.syntheticIdentity;
+  }
+
+  /**
    * Resolve the active player identity, registering a fresh one
    * if no persisted identity exists. Most games don't need to
-   * call this — any player-scoped method (events, grants,
+   * call this; any player-scoped method (events, grants,
    * inventory, …) triggers it transparently. Reach for it only
    * when you want the id available before the first request (to
    * pre-greet the player by id, say).
@@ -195,7 +211,7 @@ export class Kraty {
 
   /**
    * Finalization catch-up (docs/05b). `onFinalized` fires when a board the
-   * player is in ends — live over SSE while subscribed, OR via
+   * player is in ends: live over SSE while subscribed, OR via
    * `checkFinalizations()` for boards that finalized while they were away
    * (call it on app foreground / reconnect). Both paths deliver exactly once.
    * `dismiss`/`clearReported` acknowledge handled results so they leave storage.
@@ -216,7 +232,7 @@ export class Kraty {
   /**
    * Install an explicit identity on this SDK and persist it.
    * Use when your own auth gave you back a Kraty
-   * `externalPlayerId` + `secret` — e.g. on a new device after a
+   * `externalPlayerId` + `secret`, e.g. on a new device after a
    * server-side device-link flow.
    */
   signIn(identity: { externalPlayerId: string; secret: string }): Promise<void> {
@@ -246,7 +262,7 @@ export class Kraty {
    * Bootstrap a player-authenticated `Kraty` in one call. Reads the
    * stored secret from `secretStore`, registers if absent, retries
    * with `force: true` on a `player_already_registered` 409 (dev/test
-   * envs only — production keys reject `force` and the 409 surfaces
+   * envs only; production keys reject `force` and the 409 surfaces
    * to the caller for a real account-recovery flow), persists the
    * secret back to the store, and returns a `Kraty` wired with the
    * secret on every subsequent request.
@@ -276,7 +292,7 @@ export class Kraty {
 
     const stored = await secretStore.read(externalPlayerId);
     if (stored && stored.length > 0) {
-      // Happy path: secret already on this device — wire up
+      // Happy path: secret already on this device, so wire up
       // immediately, no register round-trip needed.
       await secretStore.writeActiveExternalPlayerId?.(externalPlayerId);
       return new Kraty({
@@ -304,11 +320,15 @@ export class Kraty {
     }
     await secretStore.write(externalPlayerId, reg.secret);
     await secretStore.writeActiveExternalPlayerId?.(externalPlayerId);
-    return new Kraty({
+    const kraty = new Kraty({
       ...options,
       playerSecret: reg.secret,
       activeExternalPlayerId: externalPlayerId,
     });
+    // Carry the fake identity the register response minted so
+    // `kraty.syntheticIdentity` is populated on this happy path.
+    kraty.client.setSyntheticIdentity(reg.syntheticIdentity ?? null);
+    return kraty;
   }
 
   /**
@@ -342,7 +362,7 @@ export class Kraty {
 
   /**
    * Write a `(externalPlayerId, secret)` pair back into the store
-   * as the active identity. Used by recovery flows — e.g. studio
+   * as the active identity. Used by recovery flows; e.g. studio
    * support hands the player a one-shot reissued secret, the client
    * stamps it into the store and resumes play.
    *
@@ -362,7 +382,7 @@ export class Kraty {
   /**
    * Clear the active identity pointer (logout). The underlying
    * secret stays in the store unless the caller also `.remove()`s
-   * it explicitly — useful if your UX wants "switch account" to
+   * it explicitly, useful if your UX wants "switch account" to
    * remember credentials for both players and just swap which is
    * active.
    */

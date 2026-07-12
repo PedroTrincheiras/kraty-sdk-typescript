@@ -2,7 +2,7 @@
  * Public response types for the `/sdk/v1` surface, mirroring the
  * OpenAPI spec at `apps/backend/openapi.json`. Kept hand-authored
  * (rather than generated) so the SDK stays terse and contributors can
- * read this file standalone — drift is caught by integration tests.
+ * read this file standalone; drift is caught by integration tests.
  */
 
 export type AttemptStatus = 'in_progress' | 'completed' | 'expired' | 'force_completed';
@@ -43,14 +43,14 @@ export interface LeaderboardEntry {
   participantId: string;
   kind: 'player' | 'bot';
   name: string | null;
-  avatarUrl?: string | null;
+  avatar?: string | null;
   score: number;
   rank: number;
   /**
    * `true` when this entry is the player calling the API (resolved from
    * the `externalId` passed via `includeSelf`). Render "You" badges or
    * highlight rows off this rather than matching `participantId` to the
-   * external id yourself — that comparison fails because the server
+   * external id yourself, since that comparison fails because the server
    * surfaces the internal player UUID, not the external one. Always
    * `false` on entries without a self-context request, and on bot
    * entries regardless.
@@ -92,7 +92,7 @@ export interface Leaderboard {
   /** The board's stable game-scoped key (e.g. `"weekly_global"`). */
   key: string;
   /** UUID of the leaderboard config row. */
-  sharedLeaderboardId: string;
+  leaderboardId: string;
   scope: 'game' | 'studio';
   resetCadence: 'never' | 'weekly' | 'monthly';
   scoreAggregation: 'best' | 'latest' | 'sum';
@@ -121,13 +121,13 @@ export interface StandingsSegment {
 }
 
 /**
- * Flexible multi-segment standings — the versatile counterpart to
+ * Flexible multi-segment standings: the versatile counterpart to
  * {@link Leaderboard}. Returns one {@link StandingsSegment} block per
  * segment selected by `scope`, live or for a past `period`.
  */
 export interface BoardStandings {
   key: string;
-  sharedLeaderboardId: string;
+  leaderboardId: string;
   scope: 'game' | 'studio';
   resetCadence: 'never' | 'weekly' | 'monthly';
   scoreAggregation: 'best' | 'latest' | 'sum';
@@ -140,10 +140,10 @@ export interface BoardStandings {
 export interface StandingsReadOptions {
   /**
    * Which segments to return (default `'all'`):
-   *   - `'self_segment'` — the caller's single home segment.
-   *   - `'mine'`         — every segment the caller appears in.
-   *   - `'segment'`      — the one named in `segment`.
-   *   - `'all'`          — every segment for the period.
+   *   - `'self_segment'`: the caller's single home segment.
+   *   - `'mine'`        : every segment the caller appears in.
+   *   - `'segment'`     : the one named in `segment`.
+   *   - `'all'`         : every segment for the period.
    * `self_segment`/`mine` resolve the caller from `externalId` (or the
    * SDK's active identity).
    */
@@ -161,7 +161,7 @@ export interface StandingsReadOptions {
 }
 
 /**
- * Result of `LeaderboardsClient.submitScore` — the player's new
+ * Result of `LeaderboardsClient.submitScore`: the player's new
  * standing on the board after the write. `rank` is `null` when the
  * board can't resolve a position for the caller yet (e.g. the period
  * just rolled over, or the score didn't beat a `best`-aggregation
@@ -181,7 +181,7 @@ export interface LeaderboardReadOptions {
   limit?: number;
   /**
    * Bucket value for segmented boards. Required only for `context`
-   * segmentation — pass the same value the SDK sent in
+   * segmentation: pass the same value the SDK sent in
    * `playerContext[segmentation.key]` on attempt start. For
    * `progression`-segmented boards omit it: the server derives the
    * caller's division. Unsegmented boards ignore it.
@@ -205,7 +205,7 @@ export interface LeaderboardPeriod {
 
 export interface LeaderboardPeriods {
   key: string;
-  sharedLeaderboardId: string;
+  leaderboardId: string;
   currentPeriodStartedAt: string;
   periods: LeaderboardPeriod[];
 }
@@ -235,8 +235,8 @@ export interface OpenCrateResponse {
 /**
  * Milestone payouts that fired during a single `progress` call. The
  * `key` identifies which milestone tripped (designers set this in the
- * event editor — show a toast or run a celebration animation against
- * it). `grants` carries the concrete rewards the engine wrote — same
+ * event editor, so show a toast or run a celebration animation against
+ * it). `grants` carries the concrete rewards the engine wrote, the same
  * shape `/grants/pending` would return, so the same handler can render
  * either path.
  */
@@ -247,13 +247,24 @@ export interface MilestoneFired {
 
 export interface ProgressResponse {
   attempt: Attempt;
-  /** Empty when nothing fired this update — never null, so callers can
+  /** Empty when nothing fired this update, never null, so callers can
    *  iterate without a null check. */
   milestonesFired: MilestoneFired[];
 }
 
+/** Result of `events.finish()`: the finalized attempt + how it resolved. */
+export interface FinishAttemptResponse {
+  attempt: Attempt;
+  /**
+   * `'completed'` is a score-attack end, or a target that was already met
+   * (completion rewards rolled). `'expired'` is a target event that ended before
+   * its target (participation only, same as a timeout).
+   */
+  outcome: 'completed' | 'expired';
+}
+
 /**
- * One slot in an event's `entryCost.currencies` list — paid from the
+ * One slot in an event's `entryCost.currencies` list, paid from the
  * player's wallet on attempt start. Lifted from the backend's
  * `EntryCost` shape verbatim.
  */
@@ -263,7 +274,7 @@ export interface EntryCostCurrency {
 }
 
 /**
- * One slot in an event's `entryCost.items` list — consumed from
+ * One slot in an event's `entryCost.items` list, consumed from
  * inventory on attempt start.
  */
 export interface EntryCostItem {
@@ -273,7 +284,7 @@ export interface EntryCostItem {
 
 /**
  * Transactional cost paid on `events.start`. Server atomically debits +
- * creates the attempt in a single tx — partial debits never persist.
+ * creates the attempt in a single tx, so partial debits never persist.
  * Missing entry triggers a `KratyApiError` with code
  * `insufficient_entry_cost`.
  */
@@ -283,7 +294,7 @@ export interface EntryCost {
 }
 
 /**
- * Reward entry — one slot inside a reward bundle or milestone reward
+ * Reward entry: one slot inside a reward bundle or milestone reward
  * payload. Sealed union on `type`.
  */
 export type RewardEntryPreview =
@@ -298,13 +309,13 @@ export type RewardEntryPreview =
  */
 export interface RewardBundlePreview {
   key: string;
-  /** LocalizedString — either a plain string or a map. */
+  /** LocalizedString: either a plain string or a map. */
   name: unknown;
   entries: RewardEntryPreview[];
 }
 
 /**
- * One milestone reward — fires when the player crosses `threshold`
+ * One milestone reward that fires when the player crosses `threshold`
  * on `metricKey` during a single attempt. Use the preview to render
  * "next milestone: 5 rabbits → 200 cash + 5 bullets" in your UI.
  */
@@ -318,10 +329,10 @@ export interface MilestoneRewardPreview {
 /**
  * Reward policy summary with inline bundle previews. Mirrors the four
  * sealed policy types the backend supports:
- *  - `none` — event has no rewards (training / practice modes).
- *  - `fixed_bundle` — everyone who completes gets the same bundle.
- *  - `rank_scaled` — bundle picked by the player's final leaderboard rank.
- *  - `shared_pool` — currency pool split among winners.
+ *  - `none`: event has no rewards (training / practice modes).
+ *  - `fixed_bundle`: everyone who completes gets the same bundle.
+ *  - `rank_scaled`: bundle picked by the player's final leaderboard rank.
+ *  - `shared_pool`: currency pool split among winners.
  */
 export interface RewardPolicySummary {
   type: 'none' | 'fixed_bundle' | 'rank_scaled' | 'shared_pool' | string;
@@ -338,7 +349,7 @@ export interface RewardPolicySummary {
 export interface EventListing {
   eventKey: string;
   /**
-   * LocalizedString — either a plain string or a map. Kept as
+   * LocalizedString: either a plain string or a map. Kept as
    * `unknown` so the SDK doesn't force a shape on consumers.
    */
   name: unknown;
@@ -368,7 +379,7 @@ export interface EventListing {
    */
   metrics?: Array<Record<string, unknown>>;
 
-  /** Player-condition tree — null when there's no join gate. */
+  /** Player-condition tree; null when there's no join gate. */
   entryRequirement?: Record<string, unknown> | null;
 
   /** Cost paid on attempt start. Absent / empty means "free to enter". */
@@ -377,7 +388,7 @@ export interface EventListing {
   /**
    * Studio-defined free-form blob. Event-level metadata merged with
    * the active window's metadata (window keys win). Use for UI hints
-   * — banner image keys, theme colors, special-event copy, etc.
+   * such as banner image keys, theme colors, special-event copy, etc.
    */
   metadata?: Record<string, unknown>;
 
@@ -390,7 +401,7 @@ export interface EventListing {
 
 /**
  * One item row as exposed to game clients via the catalog endpoint.
- * Display-relevant fields only — internal config / archival
+ * Display-relevant fields only; internal config / archival
  * timestamps stay off the SDK wire format.
  */
 export interface CatalogItem {
@@ -445,7 +456,7 @@ export interface Lobby {
   participantCount: number;
 
   /**
-   * Projected bot count at read time — derived server-side from the
+   * Projected bot count at read time, derived server-side from the
    * lobby's age and the matchmaking drip interval. Grows monotonically
    * while the lobby is `'forming'`. UI typically renders
    * `participantCount + botSlots` filled cells out of `capacity` for a
@@ -468,7 +479,7 @@ export function lobbyFilledSlots(lobby: Lobby): number {
 
 /**
  * Result of `players.register()`. The plaintext `secret` is only ever
- * surfaced HERE — store it locally on the device immediately. The next
+ * surfaced HERE, so store it locally on the device immediately. The next
  * call to `register()` for the same player returns 409
  * `player_already_registered`; lost-secret recovery is a studio-side
  * admin flow, not a client capability.
@@ -479,12 +490,26 @@ export interface PlayerRegistration {
   secret: string;
   secretPrefix?: string | null;
   registeredAt?: string | null;
+  /**
+   * A stable, privacy-preserving fake identity the platform generates for
+   * this player (name + optional avatar), drawn from the game's default
+   * identity pool. Handy for greeting the player or showing them on a public
+   * board without exposing their real profile. Also available after
+   * `connectAsPlayer` as `kraty.syntheticIdentity`.
+   */
+  syntheticIdentity?: SyntheticIdentity | null;
+}
+
+/** A generated fake name + avatar for a player (see {@link PlayerRegistration}). */
+export interface SyntheticIdentity {
+  name: string;
+  avatar?: string | null;
 }
 
 /**
  * One row in the player's platform-managed inventory. Returned by
  * `GET /sdk/v1/players/:externalId/inventory`. The item's display
- * name and other catalog metadata live on the `items` table — the
+ * name and other catalog metadata live on the `items` table; the
  * SDK only carries the per-player quantity + free-form metadata
  * stamped on deposits.
  */
@@ -511,7 +536,7 @@ export interface PlayerWalletHolding {
 
 /**
  * Input for `InventoryClient.consume`. The server requires
- * `idempotencyKey` for consume — the SDK auto-generates one if you
+ * `idempotencyKey` for consume; the SDK auto-generates one if you
  * leave it null.
  */
 export interface ConsumeItemInput {
@@ -529,7 +554,7 @@ export interface ConsumeItemResult {
 /**
  * Input for `WalletClient.debit`. Same idempotency story as
  * `ConsumeItemInput`. Credits are intentionally NOT in the client
- * SDK — only the studio's backend (`/server/v1/...`) can mint
+ * SDK; only the studio's backend (`/server/v1/...`) can mint
  * balance, so a client SDK that exposed `credit` would invite money
  * printing.
  */

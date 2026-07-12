@@ -61,7 +61,7 @@ const baseOpts = (fetchImpl: typeof fetch) => ({
   timeoutMs: 1_000,
 });
 
-describe('KratyClient — request layer', () => {
+describe('KratyClient: request layer', () => {
   it('sends Authorization: Bearer <key>', async () => {
     const { fetch, calls } = makeFetch([() => jsonRes(200, { ok: true })]);
     const c = new KratyClient(baseOpts(fetch));
@@ -132,7 +132,7 @@ describe('KratyClient — request layer', () => {
     expect(calls.every((c) => (c.body as { idempotencyKey: string }).idempotencyKey === 'idem-1')).toBe(
       true,
     );
-    // The auto-gen counter must have only fired once — retries reuse
+    // The auto-gen counter must have only fired once; retries reuse
     // the original key so the server can dedup the replay.
     expect(keyCounter).toBe(1);
   });
@@ -417,14 +417,14 @@ describe('Kraty facade', () => {
         jsonRes(200, {
           data: {
             key: 'weekly_global',
-            sharedLeaderboardId: 'slb_1',
+            leaderboardId: 'slb_1',
             scope: 'game',
             resetCadence: 'weekly',
             scoreAggregation: 'best',
             segment: null,
             period: '2026-06-22T00:00:00Z',
             entries: [
-              { participantId: 'p1', kind: 'player', name: 'alice', avatarUrl: null, score: 42, rank: 1, isSelf: false },
+              { participantId: 'p1', kind: 'player', name: 'alice', avatar: null, score: 42, rank: 1, isSelf: false },
             ],
             self: null,
           },
@@ -433,7 +433,7 @@ describe('Kraty facade', () => {
     const k = new Kraty(baseOpts(fetch));
     const board = await k.leaderboards.read('weekly_global', { limit: 10 });
     expect(board.key).toBe('weekly_global');
-    expect(board.sharedLeaderboardId).toBe('slb_1');
+    expect(board.leaderboardId).toBe('slb_1');
     expect(board.resetCadence).toBe('weekly');
     expect(board.entries).toHaveLength(1);
     expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/weekly_global?limit=10');
@@ -445,7 +445,7 @@ describe('Kraty facade', () => {
         jsonRes(200, {
           data: {
             key: 'weekly_region',
-            sharedLeaderboardId: 'slb_2',
+            leaderboardId: 'slb_2',
             scope: 'game',
             resetCadence: 'weekly',
             scoreAggregation: 'best',
@@ -479,7 +479,7 @@ describe('Kraty facade', () => {
         jsonRes(200, {
           data: {
             key: 'weekly_global',
-            sharedLeaderboardId: 'slb_1',
+            leaderboardId: 'slb_1',
             currentPeriodStartedAt: '2026-06-22T00:00:00Z',
             periods: [
               { periodStartedAt: '2026-06-15T00:00:00Z', periodEndedAt: '2026-06-22T00:00:00Z' },

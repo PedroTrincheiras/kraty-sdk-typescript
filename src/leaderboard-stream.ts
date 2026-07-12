@@ -3,19 +3,19 @@ import { FinalizationReason } from './finalization.js';
 
 /**
  * One event emitted by the leaderboard SSE stream. `kind` is the SSE
- * `event:` line — typically:
+ * `event:` line, typically:
  *
- * - `ready` — handshake, sent once after the subscription is wired.
+ * - `ready`: handshake, sent once after the subscription is wired.
  *   Safe to start posting progress as soon as this lands without
  *   missing the resulting update.
- * - `score_update` — a participant's score / rank changed; `data`
+ * - `score_update`: a participant's score / rank changed; `data`
  *   carries the new entry.
- * - `finalized` — the board has ended and finalized (a session/lobby
+ * - `finalized`: the board has ended and finalized (a session/lobby
  *   terminated, or the event window closed). `data` is a
  *   {@link LeaderboardFinalizedData}: the final `standings` (find your
  *   own placement by `participantId`) and why it ended (`reason`).
  *   Render final placements and stop expecting `score_update`s.
- * - `closed` — server is finalizing or closing. After this the
+ * - `closed`: server is finalizing or closing. After this the
  *   stream completes.
  *
  * `data` is the parsed `data:` JSON line.
@@ -62,7 +62,7 @@ export interface LeaderboardFinalizedData {
  * Handle to an active SSE subscription. Iterate `events` to consume
  * server-pushed updates, call `close()` to stop.
  *
- * The SDK does NOT auto-reconnect on transport drop — surface errors
+ * The SDK does NOT auto-reconnect on transport drop; surface errors
  * from the iterable and re-call `leaderboards.live(...)` after a
  * backoff if you want resumption.
  */
@@ -71,7 +71,7 @@ export interface LeaderboardStream {
   events: AsyncIterable<LeaderboardStreamEvent>;
   /**
    * Cancels the subscription + closes the underlying HTTP stream.
-   * Idempotent — safe to call after the server emits `closed`.
+   * Idempotent, so it is safe to call after the server emits `closed`.
    */
   close(): Promise<void>;
 }
@@ -119,7 +119,7 @@ export async function openLeaderboardStream(args: OpenArgs): Promise<Leaderboard
     try {
       payload = text ? (JSON.parse(text) as { error?: KratyErrorPayload }) : undefined;
     } catch {
-      /* not JSON — fall through */
+      /* not JSON; fall through */
     }
     throw new KratyApiError(
       response.status,
@@ -154,7 +154,7 @@ export async function openLeaderboardStream(args: OpenArgs): Promise<Leaderboard
           ? (j as Record<string, unknown>)
           : { value: j };
       } catch {
-        // Parse error — surface as an event with kind="parse-error"
+        // Parse error: surface as an event with kind="parse-error"
         // so consumers can decide whether to bail or keep listening.
         parsed = { raw: dataBuffer };
         const ev: LeaderboardStreamEvent = { kind: 'parse-error', data: parsed };
@@ -174,7 +174,7 @@ export async function openLeaderboardStream(args: OpenArgs): Promise<Leaderboard
         return flushEvent();
       }
       if (line.startsWith(':')) {
-        // Comment / heartbeat — ignore.
+        // Comment / heartbeat: ignore.
         return null;
       }
       const colonIdx = line.indexOf(':');
@@ -190,7 +190,7 @@ export async function openLeaderboardStream(args: OpenArgs): Promise<Leaderboard
           if (dataBuffer.length > 0) dataBuffer += '\n';
           dataBuffer += value;
           break;
-        // SSE also defines `id` and `retry` — we don't use them.
+        // SSE also defines `id` and `retry`, which we don't use.
         default:
           break;
       }
@@ -202,7 +202,7 @@ export async function openLeaderboardStream(args: OpenArgs): Promise<Leaderboard
         if (closed) return;
         const { value, done } = await reader.read();
         if (done) {
-          // Server closed the stream — flush any final event.
+          // Server closed the stream; flush any final event.
           const tail = flushEvent();
           if (tail) yield tail;
           return;

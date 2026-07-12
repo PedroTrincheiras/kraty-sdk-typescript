@@ -14,7 +14,7 @@ function makeTracker(opts?: {
   self?: { rank: number; score: number } | null;
 }) {
   const store = new InMemoryMembershipStore();
-  const readEventBoard = vi.fn(async () => ({
+  const readEventLeaderboard = vi.fn(async () => ({
     finalized: opts?.finalized ?? false,
     reason: opts?.reason ?? null,
     self: opts?.self ?? { rank: 3, score: 42 },
@@ -22,14 +22,14 @@ function makeTracker(opts?: {
   const tracker = new FinalizationTracker({
     store,
     getActivePlayerId: async () => 'p1',
-    readEventBoard,
+    readEventLeaderboard,
   });
   const fired: FinalizationResult[] = [];
   tracker.onFinalized((r) => fired.push(r));
-  return { store, tracker, readEventBoard, fired };
+  return { store, tracker, readEventLeaderboard, fired };
 }
 
-const REF = { kind: MembershipKind.EventBoard, leaderboardId: 'lb-1', eventKey: 'daily' };
+const REF = { kind: MembershipKind.EventLeaderboard, leaderboardId: 'lb-1', eventKey: 'daily' };
 
 describe('FinalizationTracker.track', () => {
   it('is an idempotent upsert', async () => {
@@ -62,19 +62,19 @@ describe('the SSE path writes the registry (core invariant)', () => {
   });
 
   it('a later checkFinalizations does NOT re-fire what the SSE already resolved', async () => {
-    const { tracker, fired, readEventBoard } = makeTracker({ finalized: true });
+    const { tracker, fired, readEventLeaderboard } = makeTracker({ finalized: true });
     await tracker.track(REF);
 
     // SSE resolves it first.
     await tracker.onStreamFinalized('lb-1', { reason: 'window_closed' });
     expect(fired).toHaveLength(1);
 
-    // Catch-up now sees a finalized board — but the entry is already reported.
+    // Catch-up now sees a finalized board, but the entry is already reported.
     const newlyFinalized = await tracker.checkFinalizations();
     expect(newlyFinalized).toEqual([]); // no re-report
     expect(fired).toHaveLength(1); // still one
-    // (readEventBoard may be consulted, but the writer no-ops on reportedAt.)
-    void readEventBoard;
+    // (readEventLeaderboard may be consulted, but the writer no-ops on reportedAt.)
+    void readEventLeaderboard;
   });
 });
 
@@ -133,7 +133,7 @@ describe('dismiss / clearReported', () => {
   it('clearReported drops delivered entries but keeps active ones', async () => {
     const { store, tracker } = makeTracker({ finalized: true });
     await tracker.track(REF); // will be reported
-    await tracker.track({ kind: 'event_board', leaderboardId: 'lb-2' }); // stays active
+    await tracker.track({ kind: 'event_leaderboard', leaderboardId: 'lb-2' }); // stays active
     await tracker.onStreamFinalized('lb-1', { reason: 'window_closed' });
 
     const removed = await tracker.clearReported();
@@ -149,7 +149,7 @@ describe('serialization', () => {
     const { tracker, fired } = makeTracker({ finalized: true });
     await tracker.track(REF);
 
-    // Fire both without awaiting between them — the internal queue must
+    // Fire both without awaiting between them; the internal queue must
     // serialize so only one passes the reportedAt guard.
     await Promise.all([
       tracker.onStreamFinalized('lb-1', { reason: 'session_terminated' }),

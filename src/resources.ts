@@ -29,6 +29,7 @@ import type {
   PlayerRegistration,
   PlayerWalletHolding,
   ProgressInput,
+  FinishAttemptResponse,
   ProgressResponse,
   StartAttemptResponse,
 } from './types.js';
@@ -49,7 +50,7 @@ interface DataEnvelope<T> {
  *     three-tier resolution (constructor id → persisted store →
  *     fresh self-serve register).
  *
- * The dev never has to plumb the player id through their code —
+ * The dev never has to plumb the player id through their code:
  * `kraty.events.start('weekly')` Just Works after `new Kraty(...)`.
  */
 async function resolvePlayerId(
@@ -66,7 +67,7 @@ export class EventsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/players/:externalId/events — events whose current
+   * GET /sdk/v1/players/:externalId/events: events whose current
    * window the active player can start now. Pass `{ as }` to address
    * a different player (server-side tooling only).
    */
@@ -80,10 +81,10 @@ export class EventsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/events/:e/start — start an attempt for
+   * POST /sdk/v1/players/:p/events/:e/start: start an attempt for
    * the active player. Atomically debits any configured entry cost;
    * on insufficient resources throws `KratyApiError` with
-   * `isInsufficientEntryCost` true (the debit is rolled back —
+   * `isInsufficientEntryCost` true (the debit is rolled back, so
    * partial spends never persist).
    *
    * If matchmaking is still forming, throws with `isLobbyForming`
@@ -102,16 +103,16 @@ export class EventsClient {
       )}/start`,
       { playerContext },
     );
-    // Track the session/event board for finalization catch-up (docs/05b) —
+    // Track the session/event board for finalization catch-up (docs/05b);
     // fire-and-forget so it never adds latency to start.
     void this.client
-      .trackMembership({ kind: MembershipKind.EventBoard, leaderboardId: env.data.leaderboardId, eventKey })
+      .trackMembership({ kind: MembershipKind.EventLeaderboard, leaderboardId: env.data.leaderboardId, eventKey })
       .catch(() => undefined);
     return env.data;
   }
 
   /**
-   * POST /sdk/v1/players/:p/events/:e/attempts/:a/progress — push a
+   * POST /sdk/v1/players/:p/events/:e/attempts/:a/progress: push a
    * metric update. `mode: 'set'` writes the value; `'increment'` adds.
    *
    * Response carries `milestonesFired`: any per-metric milestone whose
@@ -135,10 +136,38 @@ export class EventsClient {
     );
     return env.data;
   }
+
+  /**
+   * POST /sdk/v1/players/:p/events/:e/attempts/:a/finish: end an
+   * in-progress attempt NOW, locking in its current score. This is the
+   * player-driven "I'm done" / "cash out my run" action.
+   *
+   * Use it for score-attack events (no completion target) where the player
+   * decides when the run ends. Otherwise the attempt only finalizes when
+   * the event window closes. `outcome` is `'completed'` for a score-attack
+   * end (or a target that was already met → completion rewards roll now) or
+   * `'expired'` when a target event is ended before its target (participation
+   * only). Pull any rewards afterwards with `grants.collectAll()`.
+   */
+  async finish(
+    eventKey: string,
+    attemptId: string,
+    opts: { as?: string } = {},
+  ): Promise<FinishAttemptResponse> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'events.finish');
+    const env = await this.client.request<DataEnvelope<FinishAttemptResponse>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/events/${encodeURIComponent(
+        eventKey,
+      )}/attempts/${encodeURIComponent(attemptId)}/finish`,
+      {},
+    );
+    return env.data;
+  }
 }
 
 /**
- * Resource client for `/sdk/v1/leaderboards/:key` — the
+ * Resource client for `/sdk/v1/leaderboards/:key`, the
  * dashboard-configured cross-event leaderboards. Addressed by the
  * game-scoped `key` (e.g. `"weekly_global"`). For the auto-created
  * per-event-window boards addressed by UUID, see {@link EventLeaderboardsClient}.
@@ -147,10 +176,10 @@ export class LeaderboardsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/leaderboards/:key — snapshot read of a
+   * GET /sdk/v1/leaderboards/:key: snapshot read of a
    * dashboard-configured cross-event leaderboard.
    *
-   * `segment` is required only for `context`-segmented boards — pass
+   * `segment` is required only for `context`-segmented boards; pass
    * the same value your client supplied in
    * `playerContext[segmentation.key]` on attempt start. For
    * `progression`-segmented boards omit it; the server derives the
@@ -179,12 +208,12 @@ export class LeaderboardsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/leaderboards/:key/score — submit a score
+   * POST /sdk/v1/players/:p/leaderboards/:key/score: submit a score
    * for the active player directly to a dashboard-configured board,
    * outside an event attempt. Returns the player's new score + rank.
    *
    * `segment` is required only for `context`-segmented boards (pass
-   * the bucket value). For `progression`-segmented boards omit it —
+   * the bucket value). For `progression`-segmented boards omit it;
    * the server derives the player's division; unsegmented boards
    * ignore it.
    *
@@ -214,10 +243,10 @@ export class LeaderboardsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/leaderboards/:key/join — add the active
+   * POST /sdk/v1/players/:p/leaderboards/:key/join: add the active
    * player to a configurable board at score 0 WITHOUT submitting a
    * score (they just "appear"), and return the current standings for
-   * their segment. Idempotent — never resets an existing score.
+   * their segment. Idempotent, and never resets an existing score.
    *
    * `segment` is the bucket value for `context`-segmented boards;
    * derived server-side for `progression` boards. Pass `{ as }` to
@@ -245,7 +274,7 @@ export class LeaderboardsClient {
   }
 
   /**
-   * GET /sdk/v1/leaderboards/:key/standings — flexible multi-segment
+   * GET /sdk/v1/leaderboards/:key/standings: flexible multi-segment
    * read. Returns one block per segment (`scope` picks which), each
    * flagging the caller (`isSelf` on entries, `selfRank`, `participated`).
    * Works live (`period: 'current'`) or for a past period.
@@ -281,7 +310,7 @@ export class LeaderboardsClient {
    * GET /sdk/v1/leaderboards/:key/periods
    *
    * Lists the available snapshot periods (newest first). Useful when
-   * the UI offers "this week", "last week", "two weeks ago" — pick a
+   * the UI offers "this week", "last week", "two weeks ago". Pick a
    * `periodStartedAt` from the result and re-call `read(key, { period })`.
    */
   async listPeriods(key: string, opts: { limit?: number } = {}): Promise<LeaderboardPeriods> {
@@ -297,7 +326,7 @@ export class LeaderboardsClient {
 }
 
 /**
- * Resource client for `/sdk/v1/event-leaderboards/:id` — the auto-generated
+ * Resource client for `/sdk/v1/event-leaderboards/:id`, the auto-generated
  * per-event-window leaderboard, addressed by the UUID
  * `events.start(...)` returns in `attempt.leaderboardId`. Includes
  * Server-Sent-Events live streaming. For the dashboard-configured
@@ -307,7 +336,7 @@ export class EventLeaderboardsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/event-leaderboards/:id — top `limit` entries for one event
+   * GET /sdk/v1/event-leaderboards/:id: top `limit` entries for one event
    * window's leaderboard. Pass `includeSelf: true` + `externalId` to
    * also receive the caller's rank/score.
    */
@@ -335,7 +364,7 @@ export class EventLeaderboardsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/event-leaderboards/:id/join — add the
+   * POST /sdk/v1/players/:p/event-leaderboards/:id/join: add the
    * active player to a per-event-window board at score 0 WITHOUT
    * starting a scoring attempt, and return the current board.
    * Idempotent. Throws `KratyApiError` with `conflict` (409) once the
@@ -361,16 +390,16 @@ export class EventLeaderboardsClient {
   }
 
   /**
-   * GET /sdk/v1/event-leaderboards/:id/stream — opens a Server-Sent Events
+   * GET /sdk/v1/event-leaderboards/:id/stream: opens a Server-Sent Events
    * subscription that pushes score updates in real time. Returns a
    * `LeaderboardStream` handle whose `events` async-iterable yields
    * each parsed event (`ready`, `score_update`, `closed`).
    *
-   * Does NOT auto-reconnect on transport drop — the iterable throws
+   * Does NOT auto-reconnect on transport drop; the iterable throws
    * `KratyNetworkError` and you re-call `live(...)` after a backoff
    * if you want resumption.
    *
-   * Low-level — prefer `subscribe(...)` for game UIs.
+   * Low-level: prefer `subscribe(...)` for game UIs.
    */
   live(leaderboardId: string): Promise<LeaderboardStream> {
     return openLeaderboardStream({
@@ -399,7 +428,7 @@ export class EventLeaderboardsClient {
    * @param onEvent        Fired for every `LeaderboardStreamEvent`.
    * @param opts.pollIntervalMs  Background read cadence. Default 15_000.
    *                              Set to 0 to disable polling (SSE-only).
-   * @param opts.onError   Optional — receives transport / parse errors.
+   * @param opts.onError   Optional; receives transport / parse errors.
    */
   subscribe(
     leaderboardId: string,
@@ -520,7 +549,7 @@ export class GrantsClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/players/:p/pending-grants — the active player's
+   * GET /sdk/v1/players/:p/pending-grants: the active player's
    * unclaimed grants. Empty array for unknown players (not 404).
    * Pass `{ as }` to query another player (server tooling only).
    */
@@ -535,7 +564,7 @@ export class GrantsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/grants/:g/claim — flip a pending grant
+   * POST /sdk/v1/players/:p/grants/:g/claim: flip a pending grant
    * to claimed for the active player. Idempotent: claiming an
    * already-claimed grant returns the same row with 200.
    */
@@ -552,7 +581,7 @@ export class GrantsClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/crates/:g/open — roll the crate's reward
+   * POST /sdk/v1/players/:p/crates/:g/open: roll the crate's reward
    * table for the active player and return both the crate (now
    * claimed) and the contents grant. Idempotent on the crate id.
    */
@@ -575,8 +604,8 @@ export class GrantsClient {
    * games have.
    *
    * Errors per-grant are caught and surfaced in
-   * `CollectAllResult.failures` — one bad grant doesn't abort the
-   * whole sweep. Crates open BEFORE rewards are claimed — the
+   * `CollectAllResult.failures`, so one bad grant doesn't abort the
+   * whole sweep. Crates open BEFORE rewards are claimed, so the
    * rolled-contents grant a crate produces lands in the NEXT
    * `listPending`, so re-invoke if you want to drain those too.
    */
@@ -608,7 +637,7 @@ export class GrantsClient {
 
 /**
  * One pending grant that `collectAll` couldn't process. The other
- * grants in the same sweep still went through — inspect `error` and
+ * grants in the same sweep still went through; inspect `error` and
  * retry the individual operation.
  */
 export interface CollectAllFailure {
@@ -633,13 +662,13 @@ export interface CollectAllResult {
  * Resource client for `/sdk/v1/players/:p/inventory(/...)`. Only
  * surfaces meaningful data for games whose
  * `settings.inventoryManagement === 'platform'`. The SDK doesn't
- * expose grant / admin-credit endpoints — those are server-API only.
+ * expose grant / admin-credit endpoints; those are server-API only.
  */
 export class InventoryClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/players/:p/inventory — every item the active player
+   * GET /sdk/v1/players/:p/inventory: every item the active player
    * currently holds. Backend wraps as `{ data: { items: [...] } }`.
    */
   async list(opts: { as?: string } = {}): Promise<PlayerItemHolding[]> {
@@ -652,7 +681,7 @@ export class InventoryClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/inventory/:itemKey/consume — atomic
+   * POST /sdk/v1/players/:p/inventory/:itemKey/consume: atomic
    * decrement for the active player. Auto-stamped idempotency key
    * unless you provide one. Throws `KratyApiError` with code
    * `conflict` if the player doesn't have enough of the item.
@@ -682,7 +711,7 @@ export class WalletClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/players/:p/wallet — every economy entry the player
+   * GET /sdk/v1/players/:p/wallet: every economy entry the player
    * has touched. Backend wraps as `{ data: { wallet: [...] } }`.
    */
   async list(opts: { as?: string } = {}): Promise<PlayerWalletHolding[]> {
@@ -695,9 +724,9 @@ export class WalletClient {
   }
 
   /**
-   * POST /sdk/v1/players/:p/wallet/:economyKey/debit — atomic
+   * POST /sdk/v1/players/:p/wallet/:economyKey/debit: atomic
    * decrement on the active player's wallet. 409 on insufficient
-   * balance. Credit is intentionally not exposed here — only the
+   * balance. Credit is intentionally not exposed here; only the
    * studio's backend can mint balance.
    */
   async debit(
@@ -718,7 +747,7 @@ export class WalletClient {
 }
 
 /**
- * Resource client for `/sdk/v1/players/:p/register` — the zero-trust
+ * Resource client for `/sdk/v1/players/:p/register`, the zero-trust
  * bootstrap. Game client calls `register()` once on first launch
  * (or after the player wipes app data), captures the returned
  * `secret`, persists it locally, and re-creates the `KratyClient`
@@ -728,15 +757,15 @@ export class PlayersClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * POST /sdk/v1/players/:externalId/register — creates the player
+   * POST /sdk/v1/players/:externalId/register: creates the player
    * row if it doesn't exist + mints a per-player secret. Throws
    * `KratyApiError` with `isPlayerAlreadyRegistered` true if the
    * player has already claimed a secret.
    *
    * Pass `force: true` to ROTATE an existing secret. Only honoured
    * by non-`live` API keys (dev/test/staging). Useful in the "I
-   * wiped my app data and need to re-register" flow during testing —
-   * never wire this up in a production client.
+   * wiped my app data and need to re-register" flow during testing.
+   * Never wire this up in a production client.
    */
   async register(
     externalPlayerId: string,
@@ -751,7 +780,7 @@ export class PlayersClient {
 }
 
 /**
- * Resource client for `/sdk/v1/catalog` — single-shot read of every
+ * Resource client for `/sdk/v1/catalog`: single-shot read of every
  * item + currency configured for the game. Studios call this once at
  * boot and cache locally; pairs with `events.listForPlayer` (which
  * inlines reward-bundle previews) so a UI can render names, icons,
@@ -762,7 +791,7 @@ export class CatalogClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET `/sdk/v1/catalog` — items + currencies for the calling game.
+   * GET `/sdk/v1/catalog`: items + currencies for the calling game.
    * Game is derived from the API key; no parameters.
    */
   async read(): Promise<Catalog> {
@@ -778,7 +807,7 @@ export class LobbiesClient {
   constructor(private readonly client: KratyClient) {}
 
   /**
-   * GET /sdk/v1/lobbies/:lobbyId — poll a lobby that's still filling.
+   * GET /sdk/v1/lobbies/:lobbyId: poll a lobby that's still filling.
    * After `events.start` returns `lobby_forming` (202 with the
    * lobby-forming code), poll via this method until
    * `status !== 'forming'`, then retry `start`.

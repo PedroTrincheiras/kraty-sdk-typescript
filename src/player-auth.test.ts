@@ -155,7 +155,7 @@ describe('Kraty.connectAsPlayer', () => {
       externalPlayerId: 'alice',
       secretStore: store,
     });
-    // No HTTP yet — but the secret should be wired in.
+    // No HTTP yet, but the secret should be wired in.
     expect(calls).toHaveLength(0);
     await k.grants.listPending();
     expect(calls[0]?.headers['x-player-secret']).toBe('cached-secret');
@@ -513,7 +513,7 @@ describe('Active player id default (Option B ergonomics)', () => {
     });
     await k.grants.listPending();
     // The URL must encode the ACTIVE id, not require the caller to
-    // pass one — that's the entire point of this design.
+    // pass one; that's the entire point of this design.
     expect(calls[0]?.url).toContain('/players/alice/pending-grants');
   });
 
@@ -539,7 +539,7 @@ describe('Active player id default (Option B ergonomics)', () => {
     expect(calls[0]?.url).toMatch(
       /\/sdk\/v1\/players\/kp_[A-Za-z0-9_-]+\/register$/,
     );
-    // Second call reuses the freshly minted id — no second
+    // Second call reuses the freshly minted id, with no second
     // register, no plumbing through user code.
     expect(calls[1]?.url).toMatch(
       /\/sdk\/v1\/players\/kp_[A-Za-z0-9_-]+\/pending-grants$/,
@@ -605,7 +605,7 @@ describe('Active player id default (Option B ergonomics)', () => {
  * Unity (`PlayerAuthAndResourcesTests.cs`). These three suites are
  * the canonical lazy-identity guarantees the deploy depends on.
  */
-describe('Persisted session — resume across instances', () => {
+describe('Persisted session: resume across instances', () => {
   it('a second Kraty sharing the same SecretStore resumes the persisted identity without re-registering', async () => {
     // Launch #1: lazy-register Alice, persist the secret in `store`.
     const { fetch: fetch1, calls: calls1 } = makeFetch([
@@ -627,7 +627,7 @@ describe('Persisted session — resume across instances', () => {
     expect(calls1[1]?.url).toContain('/players/alice/pending-grants');
 
     // Launch #2: brand-new Kraty instance, same store. No
-    // `activeExternalPlayerId` plumbed — the SDK must read it back
+    // `activeExternalPlayerId` plumbed; the SDK must read it back
     // from the persisted active-id marker.
     const { fetch: fetch2, calls: calls2 } = makeFetch([
       () => jsonRes(200, { data: [] }),
@@ -641,7 +641,7 @@ describe('Persisted session — resume across instances', () => {
       retry: { attempts: 1, initialDelayMs: 1, maxDelayMs: 5, jitter: 0 },
     });
     await k2.grants.listPending();
-    // Critically: NO register call on instance #2 — only the
+    // Critically: NO register call on instance #2, only the
     // pending-grants. The persisted secret + active id resumed
     // transparently.
     expect(calls2.length).toBe(1);
@@ -650,7 +650,7 @@ describe('Persisted session — resume across instances', () => {
     expect(k2.activeExternalPlayerId).toBe('alice');
   });
 
-  it('logout invalidates the persisted resume — the next instance registers a fresh kp_ player', async () => {
+  it('logout invalidates the persisted resume: the next instance registers a fresh kp_ player', async () => {
     // Launch #1: auto-register a kp_ player.
     const { fetch: fetch1 } = makeFetch([
       () => jsonRes(201, { data: { secret: 'first-secret' } }),
@@ -669,7 +669,7 @@ describe('Persisted session — resume across instances', () => {
     const firstId = k1.activeExternalPlayerId!;
     expect(firstId).toMatch(/^kp_/);
 
-    // User taps "sign out" — wipes the persisted active marker +
+    // User taps "sign out", wiping the persisted active marker +
     // secret.
     await k1.logout();
     expect(await store.read(firstId)).toBeNull();

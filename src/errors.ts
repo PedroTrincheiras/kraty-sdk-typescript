@@ -53,7 +53,7 @@ export interface KratyErrorPayload {
  * backend's `{ error: { code, message, details? } }` envelope. Network
  * failures throw `KratyNetworkError` instead.
  *
- * Use the typed `is...` getters to switch on a code — they're cheaper
+ * Use the typed `is...` getters to switch on a code; they're cheaper
  * to read than a chain of string comparisons and immune to typos. One
  * getter exists per code in `KratyErrorCode`; if you need to match on
  * a code the SDK hasn't bumped to yet, use the generic `err.is(code)`.
@@ -84,43 +84,43 @@ export class KratyApiError extends Error {
 
   // ── core ─────────────────────────────────────────────────────────
 
-  /** 401 — `Authorization` header missing on a protected route. */
+  /** 401: `Authorization` header missing on a protected route. */
   get isUnauthenticated(): boolean { return this.code === 'unauthenticated'; }
 
-  /** 401 — Bearer token is malformed, revoked, or rejected. */
+  /** 401: Bearer token is malformed, revoked, or rejected. */
   get isSessionInvalid(): boolean { return this.code === 'session_invalid'; }
 
-  /** 403 — authenticated but lacks the permission for this route. */
+  /** 403: authenticated but lacks the permission for this route. */
   get isForbidden(): boolean { return this.code === 'forbidden'; }
 
-  /** 404 — referenced resource doesn't exist or is archived. */
+  /** 404: referenced resource doesn't exist or is archived. */
   get isNotFound(): boolean { return this.code === 'not_found'; }
 
-  /** 400 — request body / query failed schema validation. `details` carries the field-level errors. */
+  /** 400: request body / query failed schema validation. `details` carries the field-level errors. */
   get isValidationFailed(): boolean { return this.code === 'validation_failed'; }
 
   /**
-   * 409 — generic mutation conflict (wallet debit on 0 balance,
+   * 409: generic mutation conflict (wallet debit on 0 balance,
    * unknown policy type, etc.). More specific 409 codes get their
    * own getters; this catches the rest.
    */
   get isConflict(): boolean { return this.code === 'conflict'; }
 
   /**
-   * 429 — per-key rate limit exceeded. `Retry-After` header carries
+   * 429: per-key rate limit exceeded. `Retry-After` header carries
    * the wait. The SDK auto-retries with backoff before surfacing
-   * this — by the time you see it, the retry budget is exhausted.
+   * this; by the time you see it, the retry budget is exhausted.
    */
   get isRateLimited(): boolean { return this.code === 'rate_limited'; }
 
-  /** 500 — unhandled exception. Surface a generic "something went wrong" to the player. */
+  /** 500: unhandled exception. Surface a generic "something went wrong" to the player. */
   get isInternalError(): boolean { return this.code === 'internal_error'; }
 
-  /** 403 — cross-studio access attempt (RLS rejected the row). Shouldn't happen via the SDK. */
+  /** 403: cross-studio access attempt (RLS rejected the row). Shouldn't happen via the SDK. */
   get isTenantMismatch(): boolean { return this.code === 'tenant_mismatch'; }
 
   /**
-   * 409 — same `idempotencyKey` used with a different request body
+   * 409: same `idempotencyKey` used with a different request body
    * within the 24h cache TTL. Reusing keys can't silently corrupt
    * state; the SDK auto-stamps fresh keys per write so you only see
    * this when you've supplied your own key.
@@ -130,7 +130,7 @@ export class KratyApiError extends Error {
   // ── per-player auth ──────────────────────────────────────────────
 
   /**
-   * 401 — `X-Player-Secret` is missing, malformed, or doesn't match
+   * 401: `X-Player-Secret` is missing, malformed, or doesn't match
    * the stored hash for the player. Triggers your re-authentication
    * flow (`kraty.logout()` and then either auto-recover or surface
    * a sign-in UI that calls `kraty.signIn` with a server-issued
@@ -148,7 +148,7 @@ export class KratyApiError extends Error {
   get isAntiCheatRejected(): boolean { return this.code === 'anti_cheat_rejected'; }
 
   /**
-   * 409 — the player already has a registered secret. Route to
+   * 409: the player already has a registered secret. Route to
    * your account-recovery flow; dev/test environments can re-issue
    * the secret with `?force=true` on the register endpoint, but
    * production `client_sdk` keys reject `force` so a real recovery
@@ -158,50 +158,50 @@ export class KratyApiError extends Error {
 
   // ── events / attempts ────────────────────────────────────────────
 
-  /** 409 — the event is configured but disabled. Surface a "coming soon" state. */
+  /** 409: the event is configured but disabled. Surface a "coming soon" state. */
   get isEventDisabled(): boolean { return this.code === 'event_disabled'; }
 
-  /** 409 — the event has no currently-active window. Player is between scheduled windows. */
+  /** 409: the event has no currently-active window. Player is between scheduled windows. */
   get isNoActiveWindow(): boolean { return this.code === 'no_active_window'; }
 
-  /** 503 — server couldn't allocate/find the leaderboard. Usually transient; retry after backoff. */
+  /** 503: server couldn't allocate/find the leaderboard. Usually transient; retry after backoff. */
   get isNoLeaderboard(): boolean { return this.code === 'no_leaderboard'; }
 
-  /** 429 — player burned all attempts for the current event window. */
+  /** 429: player burned all attempts for the current event window. */
   get isMaxAttemptsReached(): boolean { return this.code === 'max_attempts_reached'; }
 
-  /** 429 — per-day attempt cap reached. Player should wait until midnight in the event's timezone. */
+  /** 429: per-day attempt cap reached. Player should wait until midnight in the event's timezone. */
   get isMaxDailyAttemptsReached(): boolean { return this.code === 'max_daily_attempts_reached'; }
 
-  /** 409 — reported progress on an attempt that's already `completed` / `expired`. Refresh state. */
+  /** 409: reported progress on an attempt that's already `completed` / `expired`. Refresh state. */
   get isAttemptFinished(): boolean { return this.code === 'attempt_finished'; }
 
-  /** 400 — `progress` referenced a metric key the event doesn't declare. SDK / game-config bug. */
+  /** 400: `progress` referenced a metric key the event doesn't declare. SDK / game-config bug. */
   get isInvalidMetric(): boolean { return this.code === 'invalid_metric'; }
 
-  /** 403 — player can't see the event yet (visibility gate / unlock condition failed). */
+  /** 403: player can't see the event yet (visibility gate / unlock condition failed). */
   get isUnlockConditionFailed(): boolean { return this.code === 'unlock_condition_failed'; }
 
-  /** 500 — event config has a malformed unlock condition tree. Operator should fix in the portal. */
+  /** 500: event config has a malformed unlock condition tree. Operator should fix in the portal. */
   get isInvalidUnlockCondition(): boolean { return this.code === 'invalid_unlock_condition'; }
 
   // ── entry requirements / cost ────────────────────────────────────
 
   /**
-   * 403 — player attempted an event whose entry requirement failed
+   * 403: player attempted an event whose entry requirement failed
    * (e.g. "must own item X"). Show a locked-event dialog or surface
    * what's missing from the message.
    */
   get isEntryRequirementFailed(): boolean { return this.code === 'entry_requirement_failed'; }
 
-  /** 500 — event config has a malformed entry requirement. Operator should fix. */
+  /** 500: event config has a malformed entry requirement. Operator should fix. */
   get isInvalidEntryRequirement(): boolean { return this.code === 'invalid_entry_requirement'; }
 
   /**
-   * 402 — paid event the player can't afford. `message` names the
-   * shortfall resource ("not enough cash to enter — need 50").
+   * 402: paid event the player can't afford. `message` names the
+   * shortfall resource ("not enough cash to enter, need 50").
    * Surface a "buy more X" prompt or a free-event fallback. The
-   * server's atomic debit was rolled back — partial spends never
+   * server's atomic debit was rolled back, so partial spends never
    * persist.
    */
   get isInsufficientEntryCost(): boolean { return this.code === 'insufficient_entry_cost'; }
@@ -209,7 +209,7 @@ export class KratyApiError extends Error {
   // ── matchmaking ──────────────────────────────────────────────────
 
   /**
-   * 202 — lobby-matched event whose lobby isn't yet at capacity.
+   * 202: lobby-matched event whose lobby isn't yet at capacity.
    * Not a hard failure: poll the lobby endpoint (using `details.lobbyId`)
    * and retry `events.start` once it transitions out of `forming`.
    */
@@ -219,7 +219,7 @@ export class KratyApiError extends Error {
 /**
  * Network / fetch-layer failure that didn't produce an HTTP response
  * (DNS, socket reset, abort, timeout). The SDK auto-retries network
- * errors with backoff before surfacing this — by the time you see
+ * errors with backoff before surfacing this; by the time you see
  * one, the retry budget is exhausted.
  */
 export class KratyNetworkError extends Error {

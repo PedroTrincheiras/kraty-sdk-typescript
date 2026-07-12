@@ -12,14 +12,14 @@
  * Contract:
  *
  * - `read` returns `null` (not throw) when no secret is stored. The
- *   SDK treats `null` and the empty string identically — both
+ *   SDK treats `null` and the empty string identically; both
  *   trigger a fresh `register`.
  * - `write` must be durable across page loads / process restarts. The
  *   SDK calls it exactly once per successful register. Overwriting is
- *   fine — that's the rotation path.
+ *   fine; that's the rotation path.
  * - `remove` is called by your own logout flow; the SDK never calls
  *   it internally.
- * - Operations are awaited on the boot path — implementations should
+ * - Operations are awaited on the boot path, so implementations should
  *   be reasonably fast (`<50ms`). Don't network-call from here.
  * - Key namespace is your problem: include `externalPlayerId` in the
  *   storage key so a device switching between two players doesn't
@@ -35,8 +35,8 @@ export interface SecretStore {
    * and `restoreIdentity()` so the studio's UI can ask "who's
    * logged in?" without threading the id through their own state.
    *
-   * Stores that don't implement these methods are forward-compatible
-   * — the Kraty client falls back to "no remembered identity".
+   * Stores that don't implement these methods are forward-compatible;
+   * the Kraty client falls back to "no remembered identity".
    */
   readActiveExternalPlayerId?(): Promise<string | null>;
   writeActiveExternalPlayerId?(externalPlayerId: string): Promise<void>;
@@ -122,7 +122,7 @@ export class LocalStorageSecretStore implements SecretStore {
       const g = globalThis as { localStorage?: WebStorageLike };
       if (!g.localStorage) {
         throw new Error(
-          'LocalStorageSecretStore: window.localStorage is not available in this runtime — pass a compatible store explicitly',
+          'LocalStorageSecretStore: window.localStorage is not available in this runtime; pass a compatible store explicitly',
         );
       }
       store = g.localStorage;
