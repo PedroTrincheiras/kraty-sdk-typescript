@@ -4,6 +4,13 @@ All notable changes to `@kraty/sdk` (Kraty TypeScript SDK) live here.
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [SemVer](https://semver.org/).
 
+## [0.12.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.11.0...sdk-client-typescript-v0.12.0) (2026-07-15)
+
+
+### Features
+
+* **players:** client-SDK self-service identity change ([d73e2b9](https://github.com/PedroTrincheiras/Kraty/commit/d73e2b95a4a4a17447bfb90fe2a950b1afb599e5))
+
 ## [0.11.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.10.0...sdk-client-typescript-v0.11.0) (2026-07-15)
 
 

@@ -32,6 +32,7 @@ import type {
   FinishAttemptResponse,
   ProgressResponse,
   StartAttemptResponse,
+  SyntheticIdentity,
 } from './types.js';
 
 /** Wrapper helper: every response from the SDK API is `{ data: T }`. */
@@ -776,6 +777,36 @@ export class PlayersClient {
       : `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/register`;
     const env = await this.client.request<DataEnvelope<PlayerRegistration>>('POST', path, {});
     return env.data;
+  }
+
+  /**
+   * PUT /sdk/v1/players/:externalId/identity: set the active player's OWN
+   * display name (+ optional avatar) — e.g. from a "choose your username"
+   * screen. Overrides the identity auto-generated from the game's pool and
+   * surfaces on leaderboards and in `kraty.syntheticIdentity`.
+   *
+   * Authorized by the player's own secret, so a client can only ever change
+   * ITS OWN identity. This trusts the client: if you need to moderate names,
+   * set them from your backend (server SDK `players.setIdentity`) instead.
+   *
+   * Pass `avatar: null` (or omit) to clear the avatar. `{ as }` targets
+   * another player (server-side tooling only). Throws `KratyApiError`
+   * `validation_failed` (400) on an empty or over-long name.
+   */
+  async setIdentity(
+    identity: { name: string; avatar?: string | null },
+    opts: { as?: string } = {},
+  ): Promise<SyntheticIdentity> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.setIdentity');
+    const body: { name: string; avatar?: string | null } = { name: identity.name };
+    if (identity.avatar !== undefined) body.avatar = identity.avatar;
+    const env = await this.client.request<
+      DataEnvelope<{ externalPlayerId: string; syntheticIdentity: SyntheticIdentity }>
+    >('PUT', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/identity`, body);
+    // Keep the local cache in sync so `kraty.syntheticIdentity` reflects it
+    // immediately, without a re-register round-trip.
+    this.client.setSyntheticIdentity(env.data.syntheticIdentity ?? null);
+    return env.data.syntheticIdentity;
   }
 }
 
