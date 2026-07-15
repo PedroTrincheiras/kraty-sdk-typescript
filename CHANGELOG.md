@@ -4,6 +4,19 @@ All notable changes to `@kraty/sdk` (Kraty TypeScript SDK) live here.
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [SemVer](https://semver.org/).
 
+## [0.11.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.10.0...sdk-client-typescript-v0.11.0) (2026-07-15)
+
+
+### Features
+
+* **leaderboards:** server-side country on join + country on entries/register (flags) ([666c505](https://github.com/PedroTrincheiras/Kraty/commit/666c5051211efef1de97b1917e43f78327959581))
+
+
+### Documentation
+
+* **sdks:** bump install snippets + READMEs for the v0.11.0 / v0.8.0 release ([8cafc26](https://github.com/PedroTrincheiras/Kraty/commit/8cafc26a6d7618c700b9177bedb6471d29efcfc7))
+* **sdks:** bump install snippets + READMEs to match the release-please tag versions ([c66ffaf](https://github.com/PedroTrincheiras/Kraty/commit/c66ffaf27e1ac495957067003a411df8857a1c53))
+
 ## [0.10.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.9.0...sdk-client-typescript-v0.10.0) (2026-07-12)
 
 

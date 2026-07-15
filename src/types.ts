@@ -44,6 +44,12 @@ export interface LeaderboardEntry {
   kind: 'player' | 'bot';
   name: string | null;
   avatar?: string | null;
+  /**
+   * ISO-3166 alpha-2 country of the player (server-resolved, e.g. `'PT'`),
+   * for rendering a flag next to the entry. `null` for bots and when the
+   * server couldn't resolve it.
+   */
+  country?: string | null;
   score: number;
   rank: number;
   /**
@@ -490,6 +496,12 @@ export interface PlayerRegistration {
   secret: string;
   secretPrefix?: string | null;
   registeredAt?: string | null;
+  /**
+   * ISO-3166 alpha-2 country resolved server-side from the registration
+   * request (e.g. `'PT'`); `null` when it couldn't be resolved. The client
+   * never sends it — handy for rendering the player's own flag.
+   */
+  country?: string | null;
   /**
    * A stable, privacy-preserving fake identity the platform generates for
    * this player (name + optional avatar), drawn from the game's default
