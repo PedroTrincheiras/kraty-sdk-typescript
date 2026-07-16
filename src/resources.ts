@@ -853,6 +853,50 @@ export class PlayersClient {
     >('GET', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/identity`);
     return env.data.anonymizedIdentity;
   }
+
+  /**
+   * PUT `/sdk/v1/players/:externalId/metadata`: REPLACE the calling
+   * player's free-form metadata bag wholesale. Studio-defined keys —
+   * anything the platform's own model doesn't cover (VIP flag, gender,
+   * preferred language, cohort, whatever). Surfaced on every
+   * leaderboard entry as `entry.player.metadata` so game code can
+   * render metadata-aware UI (VIP crowns, etc.) without a second lookup.
+   *
+   * Use [[mergeMetadata]] if you only want to update a subset of keys
+   * without losing the others.
+   *
+   * Authorized by the player's own secret — clients can only ever
+   * change their OWN metadata. Studios that need to moderate the
+   * payload should set metadata from their backend via the server SDK
+   * `players.setMetadata` instead.
+   */
+  async setMetadata(
+    metadata: Record<string, unknown>,
+    opts: { as?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.setMetadata');
+    const env = await this.client.request<
+      DataEnvelope<{ externalPlayerId: string; metadata: Record<string, unknown> }>
+    >('PUT', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/metadata`, metadata);
+    return env.data.metadata;
+  }
+
+  /**
+   * PATCH `/sdk/v1/players/:externalId/metadata`: shallow-merge `patch`
+   * into the calling player's existing metadata. Keys present in
+   * `patch` overwrite; keys absent stay untouched. Use this for one-off
+   * updates (`{ vip: true }`) instead of the full-replace [[setMetadata]].
+   */
+  async mergeMetadata(
+    patch: Record<string, unknown>,
+    opts: { as?: string } = {},
+  ): Promise<Record<string, unknown>> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.mergeMetadata');
+    const env = await this.client.request<
+      DataEnvelope<{ externalPlayerId: string; metadata: Record<string, unknown> }>
+    >('PATCH', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/metadata`, patch);
+    return env.data.metadata;
+  }
 }
 
 /**
