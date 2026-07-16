@@ -50,6 +50,16 @@ export interface LeaderboardEntry {
    * server couldn't resolve it.
    */
   country?: string | null;
+  /**
+   * Immutable anonymized identity fields for players. `name` / `avatar`
+   * above hold the player's real display identity (from `setIdentity`)
+   * with a fallback to the synthetic-pool value; these two carry the
+   * pool value directly, so a game can render a privacy-preserving view
+   * (public boards, cross-game aggregations) without a second lookup.
+   * `null` on bot entries and on rows that predate the split feature.
+   */
+  anonymizedName?: string | null;
+  anonymizedAvatar?: string | null;
   score: number;
   rank: number;
   /**
@@ -62,6 +72,19 @@ export interface LeaderboardEntry {
    * entries regardless.
    */
   isSelf: boolean;
+}
+
+/**
+ * Public identity envelope surfaced on player responses: the same shape
+ * for both `getIdentity()` (real display value) and `getAnonymizedIdentity()`
+ * (immutable synthetic pool value). `country` is the same on either view
+ * — a player has one real country regardless of which name/avatar the
+ * caller chose to render.
+ */
+export interface PlayerIdentity {
+  name: string;
+  avatar?: string | null;
+  country?: string | null;
 }
 
 /**
@@ -510,6 +533,21 @@ export interface PlayerRegistration {
    * `connectAsPlayer` as `kraty.syntheticIdentity`.
    */
   syntheticIdentity?: SyntheticIdentity | null;
+  /**
+   * Real display identity: the same shape as [[SyntheticIdentity]] but
+   * enriched with `country` (identical on either view). Reflects
+   * `setIdentity` if the player has renamed themselves; falls back to
+   * the synthetic value otherwise. Prefer `players.getIdentity()` /
+   * `players.getAnonymizedIdentity()` for reads.
+   */
+  displayIdentity?: PlayerIdentity | null;
+  /**
+   * Always the immutable synthetic-pool identity (name + optional
+   * avatar + country). `setIdentity` never touches this; use it for
+   * privacy-preserving views (public leaderboards, cross-game
+   * aggregations).
+   */
+  anonymizedIdentity?: PlayerIdentity | null;
 }
 
 /** A generated fake name + avatar for a player (see {@link PlayerRegistration}). */

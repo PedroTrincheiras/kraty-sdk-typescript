@@ -25,6 +25,7 @@ import type {
   Lobby,
   OpenCrateResponse,
   PlayerContext,
+  PlayerIdentity,
   PlayerItemHolding,
   PlayerRegistration,
   PlayerWalletHolding,
@@ -796,17 +797,61 @@ export class PlayersClient {
   async setIdentity(
     identity: { name: string; avatar?: string | null },
     opts: { as?: string } = {},
-  ): Promise<SyntheticIdentity> {
+  ): Promise<PlayerIdentity | null> {
     const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.setIdentity');
     const body: { name: string; avatar?: string | null } = { name: identity.name };
     if (identity.avatar !== undefined) body.avatar = identity.avatar;
     const env = await this.client.request<
-      DataEnvelope<{ externalPlayerId: string; syntheticIdentity: SyntheticIdentity }>
+      DataEnvelope<{
+        externalPlayerId: string;
+        displayIdentity: PlayerIdentity | null;
+        anonymizedIdentity: PlayerIdentity | null;
+      }>
     >('PUT', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/identity`, body);
-    // Keep the local cache in sync so `kraty.syntheticIdentity` reflects it
-    // immediately, without a re-register round-trip.
-    this.client.setSyntheticIdentity(env.data.syntheticIdentity ?? null);
-    return env.data.syntheticIdentity;
+    // Keep the local cache in sync so `kraty.syntheticIdentity` reflects the
+    // anonymized value immediately without a re-register round-trip.
+    if (env.data.anonymizedIdentity) {
+      this.client.setSyntheticIdentity({
+        name: env.data.anonymizedIdentity.name,
+        avatar: env.data.anonymizedIdentity.avatar ?? null,
+      });
+    }
+    return env.data.displayIdentity;
+  }
+
+  /**
+   * The player's REAL display identity — what `setIdentity` writes, falling
+   * back to the anonymized pool value when they've never renamed themselves.
+   * Includes the server-resolved `country`. Use this when rendering a
+   * self-facing surface where the real name should show if the player picked
+   * one; use [[getAnonymizedIdentity]] for public / privacy-preserving views.
+   *
+   * By default resolves the calling player's own identity. Pass `{ as }` to
+   * look up another player (requires an externalId your client can already
+   * see — this route reads the same public identity envelope every
+   * leaderboard entry carries).
+   */
+  async getIdentity(opts: { as?: string } = {}): Promise<PlayerIdentity | null> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.getIdentity');
+    const env = await this.client.request<
+      DataEnvelope<{ displayIdentity: PlayerIdentity | null }>
+    >('GET', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/identity`);
+    return env.data.displayIdentity;
+  }
+
+  /**
+   * The player's ANONYMIZED identity — always the immutable synthetic-pool
+   * value plus `country`, regardless of any `setIdentity` overrides. Use
+   * this when rendering public leaderboards or any surface where the real
+   * name shouldn't leak. Pair with [[getIdentity]] for the "real name if
+   * set, anonymized otherwise" flow.
+   */
+  async getAnonymizedIdentity(opts: { as?: string } = {}): Promise<PlayerIdentity | null> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'players.getAnonymizedIdentity');
+    const env = await this.client.request<
+      DataEnvelope<{ anonymizedIdentity: PlayerIdentity | null }>
+    >('GET', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/identity`);
+    return env.data.anonymizedIdentity;
   }
 }
 
