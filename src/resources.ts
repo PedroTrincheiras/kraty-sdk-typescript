@@ -8,6 +8,7 @@ import {
 } from './leaderboard-stream.js';
 import type {
   BoardStandings,
+  BlockedPlayer,
   Catalog,
   ConsumeItemInput,
   ConsumeItemResult,
@@ -16,6 +17,11 @@ import type {
   EventLeaderboard,
   EventLeaderboardReadOptions,
   EventListing,
+  Friend,
+  FriendCode,
+  FriendRequests,
+  FriendSearchResult,
+  FriendTarget,
   Grant,
   Leaderboard,
   LeaderboardPeriods,
@@ -27,9 +33,11 @@ import type {
   PlayerContext,
   PlayerIdentity,
   PlayerItemHolding,
+  PlayerPresence,
   PlayerRegistration,
   PlayerWalletHolding,
   ProgressInput,
+  SendFriendRequestResult,
   FinishAttemptResponse,
   ProgressResponse,
   StartAttemptResponse,
@@ -896,6 +904,189 @@ export class PlayersClient {
       DataEnvelope<{ externalPlayerId: string; metadata: Record<string, unknown> }>
     >('PATCH', `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/metadata`, patch);
     return env.data.metadata;
+  }
+}
+
+/**
+ * Resource client for the player social graph, under
+ * `/sdk/v1/players/:externalId/...`: friend codes, requests, the
+ * friends list with live presence, username search, and blocking.
+ *
+ * Every method is authorized by the active player's own secret, so a
+ * client can only ever act on ITS OWN social graph — friends are always
+ * scoped to the same game + environment. Pass `{ as }` on any method to
+ * address a different player (server-side tooling only).
+ */
+export class FriendsClient {
+  constructor(private readonly client: KratyClient) {}
+
+  /**
+   * GET `/friend-code`: the caller's short, shareable friend code
+   * (6 chars, unambiguous alphabet), generated on first use and stable
+   * forever after. Share it out-of-band so a friend can `add` you
+   * without a username search.
+   */
+  async getCode(opts: { as?: string } = {}): Promise<FriendCode> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.getCode');
+    const env = await this.client.request<DataEnvelope<FriendCode>>(
+      'GET',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friend-code`,
+    );
+    return env.data;
+  }
+
+  /**
+   * POST `/presence`: refresh the caller's online status. Call every
+   * ~30s while the player is active; presence expires automatically when
+   * heartbeats stop. Optionally set a free-form `status` label
+   * ("in_match", "lobby", …) that friends see. Pass `status: null` to
+   * clear it.
+   */
+  async heartbeat(
+    opts: { status?: string | null; as?: string } = {},
+  ): Promise<PlayerPresence> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.heartbeat');
+    const body: { status?: string | null } = {};
+    if (opts.status !== undefined) body.status = opts.status;
+    const env = await this.client.request<DataEnvelope<PlayerPresence>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/presence`,
+      body,
+    );
+    return env.data;
+  }
+
+  /**
+   * GET `/friends`: the caller's accepted friends, each enriched with
+   * display identity and live presence (online / last-active / status).
+   */
+  async list(opts: { as?: string } = {}): Promise<Friend[]> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.list');
+    const env = await this.client.request<DataEnvelope<{ friends: Friend[] }>>(
+      'GET',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends`,
+    );
+    return env.data.friends;
+  }
+
+  /**
+   * GET `/friends/search?q=`: find other players by display name within
+   * the same game + environment. Each hit reports the caller's
+   * relationship to that player; blocked players are omitted.
+   */
+  async search(query: string, opts: { limit?: number; as?: string } = {}): Promise<FriendSearchResult[]> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.search');
+    const params = new URLSearchParams({ q: query });
+    if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+    const env = await this.client.request<DataEnvelope<{ results: FriendSearchResult[] }>>(
+      'GET',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/search?${params.toString()}`,
+    );
+    return env.data.results;
+  }
+
+  /**
+   * GET `/friends/requests`: the caller's pending incoming + outgoing
+   * friend requests.
+   */
+  async listRequests(opts: { as?: string } = {}): Promise<FriendRequests> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.listRequests');
+    const env = await this.client.request<DataEnvelope<FriendRequests>>(
+      'GET',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/requests`,
+    );
+    return env.data;
+  }
+
+  /**
+   * POST `/friends/requests`: add another player by `friendCode` or
+   * `externalPlayerId` (exactly one). Creates a pending request they must
+   * accept — unless they had already requested the caller, in which case
+   * the friendship is accepted immediately (`status: 'accepted'`).
+   * Throws `KratyApiError` on `player_blocked` (403), `already_friends`
+   * (409), `cannot_friend_self` (400), or `friend_code_invalid` (404).
+   */
+  async add(target: FriendTarget, opts: { as?: string } = {}): Promise<SendFriendRequestResult> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.add');
+    const env = await this.client.request<DataEnvelope<SendFriendRequestResult>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/requests`,
+      target,
+    );
+    return env.data;
+  }
+
+  /** POST `/friends/requests/:id/accept`: accept an incoming request. */
+  async accept(requestId: string, opts: { as?: string } = {}): Promise<Friend> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.accept');
+    const env = await this.client.request<DataEnvelope<{ friend: Friend }>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/requests/${encodeURIComponent(requestId)}/accept`,
+      {},
+    );
+    return env.data.friend;
+  }
+
+  /** POST `/friends/requests/:id/decline`: decline an incoming request. */
+  async decline(requestId: string, opts: { as?: string } = {}): Promise<void> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.decline');
+    await this.client.request<DataEnvelope<{ declined: boolean }>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/requests/${encodeURIComponent(requestId)}/decline`,
+      {},
+    );
+  }
+
+  /** DELETE `/friends/requests/:id`: cancel an outgoing request. */
+  async cancelRequest(requestId: string, opts: { as?: string } = {}): Promise<void> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.cancelRequest');
+    await this.client.request<DataEnvelope<{ cancelled: boolean }>>(
+      'DELETE',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/requests/${encodeURIComponent(requestId)}`,
+    );
+  }
+
+  /** DELETE `/friends/:friendExternalId`: remove an existing friend. */
+  async remove(friendExternalId: string, opts: { as?: string } = {}): Promise<void> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.remove');
+    await this.client.request<DataEnvelope<{ removed: boolean }>>(
+      'DELETE',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/friends/${encodeURIComponent(friendExternalId)}`,
+    );
+  }
+
+  /** GET `/blocks`: the players the caller has blocked. */
+  async listBlocks(opts: { as?: string } = {}): Promise<BlockedPlayer[]> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.listBlocks');
+    const env = await this.client.request<DataEnvelope<{ blocked: BlockedPlayer[] }>>(
+      'GET',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/blocks`,
+    );
+    return env.data.blocked;
+  }
+
+  /**
+   * POST `/blocks`: block a player by `friendCode` or `externalPlayerId`.
+   * Tears down any friendship / pending request between the two and hides
+   * each from the other's search + presence.
+   */
+  async block(target: FriendTarget, opts: { as?: string } = {}): Promise<BlockedPlayer> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.block');
+    const env = await this.client.request<DataEnvelope<{ blocked: BlockedPlayer }>>(
+      'POST',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/blocks`,
+      target,
+    );
+    return env.data.blocked;
+  }
+
+  /** DELETE `/blocks/:blockedExternalId`: unblock a player. */
+  async unblock(blockedExternalId: string, opts: { as?: string } = {}): Promise<void> {
+    const externalPlayerId = await resolvePlayerId(this.client, opts.as, 'friends.unblock');
+    await this.client.request<DataEnvelope<{ unblocked: boolean }>>(
+      'DELETE',
+      `/sdk/v1/players/${encodeURIComponent(externalPlayerId)}/blocks/${encodeURIComponent(blockedExternalId)}`,
+    );
   }
 }
 

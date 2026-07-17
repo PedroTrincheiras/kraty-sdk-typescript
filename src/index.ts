@@ -4,6 +4,7 @@ import {
   CatalogClient,
   EventLeaderboardsClient,
   EventsClient,
+  FriendsClient,
   GrantsClient,
   InventoryClient,
   LeaderboardsClient,
@@ -21,6 +22,7 @@ export {
   CatalogClient,
   EventLeaderboardsClient,
   EventsClient,
+  FriendsClient,
   GrantsClient,
   InventoryClient,
   LeaderboardsClient,
@@ -81,6 +83,7 @@ export {
 export type {
   Attempt,
   AttemptStatus,
+  BlockedPlayer,
   BoardStandings,
   Catalog,
   CatalogCurrency,
@@ -96,6 +99,14 @@ export type {
   EventLeaderboard,
   EventLeaderboardReadOptions,
   FinishAttemptResponse,
+  Friend,
+  FriendCode,
+  FriendRelationship,
+  FriendRequest,
+  FriendRequestDirection,
+  FriendRequests,
+  FriendSearchResult,
+  FriendTarget,
   Grant,
   GrantKind,
   GrantStatus,
@@ -112,10 +123,12 @@ export type {
   OpenCrateResponse,
   PlayerContext,
   PlayerItemHolding,
+  PlayerPresence,
   PlayerRegistration,
   PlayerWalletHolding,
   ProgressInput,
   ProgressResponse,
+  SendFriendRequestResult,
   RewardBundlePreview,
   RewardEntryPreview,
   RewardPolicySummary,
@@ -147,6 +160,7 @@ export class Kraty {
   readonly inventory: InventoryClient;
   readonly wallet: WalletClient;
   readonly players: PlayersClient;
+  readonly friends: FriendsClient;
   readonly catalog: CatalogClient;
 
   constructor(opts: KratyClientOptions) {
@@ -159,6 +173,7 @@ export class Kraty {
     this.inventory = new InventoryClient(this.client);
     this.wallet = new WalletClient(this.client);
     this.players = new PlayersClient(this.client);
+    this.friends = new FriendsClient(this.client);
     this.catalog = new CatalogClient(this.client);
   }
 

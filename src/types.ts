@@ -619,3 +619,84 @@ export interface DebitWalletResult {
   balance: number;
   applied: boolean;
 }
+
+// ── Friends / social graph ─────────────────────────────────────────────
+
+/**
+ * A confirmed friend, enriched with identity + live presence. Mirrors the
+ * OpenAPI `Friend` component. `online` / `lastActiveAt` / `status` come
+ * from the friend's heartbeat and are only fresh while they keep beating.
+ */
+export interface Friend {
+  externalPlayerId: string;
+  displayIdentity: PlayerIdentity | null;
+  /** ISO timestamp the friendship was established. */
+  friendsSince: string;
+  online: boolean;
+  /** ISO timestamp of their last heartbeat, or null when never/expired. */
+  lastActiveAt: string | null;
+  /** Free-form client-set status ("in_match", "lobby", …), or null. */
+  status: string | null;
+}
+
+/** The caller's shareable friend code + display identity. */
+export interface FriendCode {
+  friendCode: string;
+  displayIdentity: PlayerIdentity | null;
+}
+
+/** The player's own presence after a heartbeat. */
+export interface PlayerPresence {
+  online: boolean;
+  lastActiveAt: string | null;
+  status: string | null;
+}
+
+export type FriendRequestDirection = 'incoming' | 'outgoing';
+
+/** A pending friend request, incoming or outgoing. */
+export interface FriendRequest {
+  requestId: string;
+  direction: FriendRequestDirection;
+  player: { externalPlayerId: string; displayIdentity: PlayerIdentity | null };
+  createdAt: string;
+}
+
+export interface FriendRequests {
+  incoming: FriendRequest[];
+  outgoing: FriendRequest[];
+}
+
+/** Add-or-block target: exactly one of the two identifiers. */
+export type FriendTarget = { friendCode: string } | { externalPlayerId: string };
+
+/**
+ * Result of `friends.add`: either a newly-pending request, or an
+ * immediately-accepted friendship when the other player had already
+ * requested the caller (reciprocal auto-accept).
+ */
+export interface SendFriendRequestResult {
+  status: 'pending' | 'accepted';
+  request?: FriendRequest;
+  friend?: Friend;
+}
+
+export type FriendRelationship =
+  | 'none'
+  | 'friends'
+  | 'request_incoming'
+  | 'request_outgoing';
+
+/** A username-search hit + the caller's relationship to that player. */
+export interface FriendSearchResult {
+  externalPlayerId: string;
+  displayIdentity: PlayerIdentity | null;
+  relationship: FriendRelationship;
+}
+
+/** A player the caller has blocked. */
+export interface BlockedPlayer {
+  externalPlayerId: string;
+  displayIdentity: PlayerIdentity | null;
+  blockedAt: string;
+}
