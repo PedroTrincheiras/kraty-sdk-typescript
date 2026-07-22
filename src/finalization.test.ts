@@ -4,20 +4,24 @@ import {
   FinalizationReason,
   InMemoryMembershipStore,
   MembershipKind,
+  StandingKind,
   type FinalizationReason as FinalizationReasonT,
   type FinalizationResult,
+  type FinalStanding,
 } from './finalization.js';
 
 function makeTracker(opts?: {
   finalized?: boolean;
   reason?: FinalizationReasonT | null;
   self?: { rank: number; score: number } | null;
+  standings?: FinalStanding[];
 }) {
   const store = new InMemoryMembershipStore();
   const readEventLeaderboard = vi.fn(async () => ({
     finalized: opts?.finalized ?? false,
     reason: opts?.reason ?? null,
     self: opts?.self ?? { rank: 3, score: 42 },
+    ...(opts?.standings ? { standings: opts.standings } : {}),
   }));
   const tracker = new FinalizationTracker({
     store,
@@ -117,6 +121,55 @@ describe('checkFinalizations (catch-up path)', () => {
     await tracker.track(REF);
     expect(await tracker.checkFinalizations()).toEqual([]);
     expect(fired).toHaveLength(0);
+  });
+});
+
+describe('standings carry avatar + isSelf (server-resolved via the board read)', () => {
+  const rich: FinalStanding[] = [
+    { participantId: 'me', rank: 1, score: 5, name: 'Me', kind: StandingKind.Player, avatar: 'a-me', isSelf: true },
+    { participantId: 'bot1', rank: 2, score: 4, name: 'Bot', kind: StandingKind.Bot, avatar: 'a-bot', isSelf: false },
+  ];
+
+  it('onStreamFinalized enriches from the read (avatar + isSelf), not just the broadcast', async () => {
+    const { tracker, fired, readEventLeaderboard } = makeTracker({
+      finalized: true,
+      self: { rank: 1, score: 5 },
+      standings: rich,
+    });
+    await tracker.track(REF);
+
+    // Broadcast standings are minimal (no avatar/isSelf); the read must win.
+    await tracker.onStreamFinalized('lb-1', {
+      reason: 'session_terminated',
+      standings: [{ participantId: 'me', rank: 1, score: 5, name: 'Me', kind: 'player' }],
+    });
+
+    expect(readEventLeaderboard).toHaveBeenCalledWith('lb-1');
+    expect(fired).toHaveLength(1);
+    const s = fired[0]!.standings!;
+    expect(s[0]).toMatchObject({ participantId: 'me', avatar: 'a-me', isSelf: true });
+    expect(s[1]).toMatchObject({ participantId: 'bot1', avatar: 'a-bot', isSelf: false });
+    expect(fired[0]!.self).toEqual({ rank: 1, score: 5 });
+    expect(fired[0]!.reason).toBe('session_terminated'); // precise SSE reason kept
+  });
+
+  it('checkFinalizations returns standings with avatar + isSelf', async () => {
+    const { tracker, fired } = makeTracker({ finalized: true, standings: rich });
+    await tracker.track(REF);
+    const out = await tracker.checkFinalizations();
+    expect(out[0]!.standings![0]).toMatchObject({ avatar: 'a-me', isSelf: true });
+    expect(fired[0]!.standings![0]).toMatchObject({ avatar: 'a-me', isSelf: true });
+  });
+
+  it('falls back to the broadcast standings when the read has none', async () => {
+    const { tracker, fired } = makeTracker({ finalized: true }); // no standings from read
+    await tracker.track(REF);
+    await tracker.onStreamFinalized('lb-1', {
+      reason: 'window_closed',
+      standings: [{ participantId: 'me', rank: 1, score: 5, name: 'Me', kind: 'player' }],
+    });
+    expect(fired[0]!.standings).toHaveLength(1);
+    expect(fired[0]!.standings![0]).toMatchObject({ participantId: 'me' });
   });
 });
 

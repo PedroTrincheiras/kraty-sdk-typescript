@@ -495,3 +495,44 @@ describe('Kraty facade', () => {
     expect(calls[0]?.url).toContain('/sdk/v1/leaderboards/weekly_global/periods?limit=5');
   });
 });
+
+describe('server clock (/sdk/v1/time)', () => {
+  const timeBody = {
+    data: { epochMs: 1_800_000_000_000, iso: '2027-01-15T08:00:00.000Z', timezone: 'UTC', offsetMinutes: 0, local: '2027-01-15T08:00:00' },
+  };
+
+  it('getServerTime() GETs /sdk/v1/time and returns the payload', async () => {
+    const { fetch, calls } = makeFetch([() => jsonRes(200, timeBody)]);
+    const k = new Kraty(baseOpts(fetch));
+    const t = await k.getServerTime();
+    expect(calls[0]?.url).toContain('/sdk/v1/time');
+    expect(calls[0]?.url).not.toContain('timezone=');
+    expect(t.epochMs).toBe(1_800_000_000_000);
+    expect(t.timezone).toBe('UTC');
+  });
+
+  it('passes the timezone query param when given', async () => {
+    const tz = {
+      data: { epochMs: 1_800_000_000_000, iso: '2027-01-15T08:00:00.000Z', timezone: 'Europe/Lisbon', offsetMinutes: 0, local: '2027-01-15T08:00:00' },
+    };
+    const { fetch, calls } = makeFetch([() => jsonRes(200, tz)]);
+    const k = new Kraty(baseOpts(fetch));
+    const t = await k.getServerTime({ timezone: 'Europe/Lisbon' });
+    expect(calls[0]?.url).toContain('timezone=Europe%2FLisbon');
+    expect(t.timezone).toBe('Europe/Lisbon');
+  });
+
+  it('serverNow() is anchored to the server epoch after syncTime()', async () => {
+    const { fetch } = makeFetch([() => jsonRes(200, timeBody)]);
+    const k = new Kraty(baseOpts(fetch));
+    expect(k.isTimeSynced).toBe(false);
+    expect(() => k.serverNowMs()).toThrow(); // not synced yet
+    await k.syncTime();
+    expect(k.isTimeSynced).toBe(true);
+    const now = k.serverNowMs();
+    // Anchored to the server epoch + a tiny monotonic elapsed (test runs fast).
+    expect(now).toBeGreaterThanOrEqual(1_800_000_000_000);
+    expect(now).toBeLessThan(1_800_000_000_000 + 5_000);
+    expect(k.serverNow()).toBeInstanceOf(Date);
+  });
+});

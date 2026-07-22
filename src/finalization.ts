@@ -77,6 +77,14 @@ export interface FinalStanding {
   score: number;
   name: string;
   kind: StandingKind;
+  /** Avatar reference for this row, or null (bots / unset). Populated when the
+   *  standings came from a board read (the normal path); may be null on the
+   *  rare live-broadcast fallback. */
+  avatar?: string | null;
+  /** True for the row belonging to the player who received this result — use it
+   *  to highlight "you" without matching ids yourself. Server-resolved on the
+   *  board read; false on the live-broadcast fallback. */
+  isSelf?: boolean;
 }
 
 export interface FinalizationResult {
@@ -160,6 +168,10 @@ export interface FinalizationTrackerDeps {
     finalized: boolean;
     reason?: FinalizationReason | null;
     self: { rank: number; score: number } | null;
+    /** The board's final rows (server-resolved: avatar + isSelf per row), so a
+     *  finalization can be rendered without a second fetch. Omitted if the read
+     *  couldn't return them. */
+    standings?: FinalStanding[];
   } | null>;
   /** Entries older than this (finalized+reported, or stale-active) are pruned.
    *  Default 7 days. */
@@ -236,13 +248,18 @@ export class FinalizationTracker {
       data.reason === FinalizationReason.WindowClosed
         ? data.reason
         : FinalizationReason.Finalized;
+    // The live `finalized` frame is a board-wide BROADCAST, so it can't carry
+    // this viewer's `self` or per-row `isSelf`. Enrich with one per-player board
+    // read so the result carries server-resolved standings (avatar + isSelf) and
+    // the caller's self entry. Falls back to the broadcast standings (no isSelf)
+    // if the read is unavailable — delivery still happens either way.
+    const read = await this.deps.readEventLeaderboard(leaderboardId).catch(() => null);
+    const standings = read?.standings ?? data.standings;
     await this.resolveFinalized(playerId, ref, {
       ref,
-      reason,
-      // The self entry isn't in the stream payload; the app can match itself in
-      // `standings` by participantId. Left null here.
-      self: null,
-      ...(data.standings ? { standings: data.standings } : {}),
+      reason, // keep the precise SSE reason over the read's
+      self: read?.self ?? null,
+      ...(standings ? { standings } : {}),
     });
   }
 
@@ -268,6 +285,7 @@ export class FinalizationTracker {
         // fallback if the backend didn't supply a reason.
         reason: read.reason ?? FinalizationReason.Finalized,
         self: read.self,
+        ...(read.standings ? { standings: read.standings } : {}),
         ...(e.ref.eventKey ? { eventKey: e.ref.eventKey } : {}),
       };
       if (await this.resolveFinalized(playerId, e.ref, result)) out.push(result);

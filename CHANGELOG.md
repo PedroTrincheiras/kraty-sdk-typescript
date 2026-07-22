@@ -4,6 +4,15 @@ All notable changes to `@kraty/sdk` (Kraty TypeScript SDK) live here.
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [SemVer](https://semver.org/).
 
+## [0.18.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.17.0...sdk-client-typescript-v0.18.0) (2026-07-23)
+
+
+### Features
+
+* **sdk:** `FinalStanding` now carries `avatar` + `isSelf`; `onFinalized` reads the finalized board (live SSE + catch-up) so a result screen renders without a second fetch.
+* **sdk:** server clock — `getServerTime()` plus `syncTime()` / `serverNow()` (monotonic-anchored), so game timers can't be spoofed by changing the device clock.
+
+
 ## [0.17.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.16.0...sdk-client-typescript-v0.17.0) (2026-07-17)
 
 

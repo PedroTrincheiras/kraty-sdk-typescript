@@ -17,7 +17,7 @@ import {
 import type { SecretStore } from './secret-store.js';
 
 export { KratyClient } from './client.js';
-export type { KratyClientOptions, RetryConfig, RequestInfo } from './client.js';
+export type { KratyClientOptions, RetryConfig, RequestInfo, ServerTime } from './client.js';
 export {
   CatalogClient,
   EventLeaderboardsClient,
@@ -242,6 +242,29 @@ export class Kraty {
   }
   clearReported(): Promise<number> {
     return this.client.clearReported();
+  }
+
+  /**
+   * Server clock. Fetch the backend's time so game timers can't be cheated by
+   * changing the device clock. `getServerTime()` is a one-shot fetch;
+   * `syncTime()` + `serverNow()` give a tamper-proof local clock anchored to
+   * the server via a monotonic reference (call `syncTime()` at startup + on
+   * resume). Compare `serverNow()`/`epochMs` against event `endsAt`.
+   */
+  getServerTime(opts?: Parameters<KratyClient['getServerTime']>[0]): ReturnType<KratyClient['getServerTime']> {
+    return this.client.getServerTime(opts);
+  }
+  syncTime(): Promise<void> {
+    return this.client.syncTime();
+  }
+  get isTimeSynced(): boolean {
+    return this.client.isTimeSynced;
+  }
+  serverNowMs(): number {
+    return this.client.serverNowMs();
+  }
+  serverNow(): Date {
+    return this.client.serverNow();
   }
 
   /**

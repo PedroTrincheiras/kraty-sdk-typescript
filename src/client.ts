@@ -8,9 +8,11 @@ import {
   FinalizationTracker,
   InMemoryMembershipStore,
   LocalStorageMembershipStore,
+  StandingKind,
   type FinalizationListener,
   type FinalizationResult,
   type FinalizationReason,
+  type FinalStanding,
   type MembershipRef,
   type MembershipStore,
 } from './finalization.js';
@@ -148,6 +150,30 @@ const IDEMPOTENT_METHODS = new Set(['POST', 'PUT', 'PATCH']);
  * instantiate the per-resource wrappers via the convenience
  * `Kraty` facade.
  */
+/** Server clock, returned by {@link KratyClient.getServerTime}. */
+export interface ServerTime {
+  /** Unix epoch milliseconds (UTC). Compare this against event `endsAt`. */
+  epochMs: number;
+  /** UTC ISO-8601 string. */
+  iso: string;
+  /** IANA timezone the `local`/`offsetMinutes` fields describe (`UTC` unless a
+   *  `timezone` was requested). */
+  timezone: string;
+  /** `timezone`'s offset from UTC at this instant, in minutes. */
+  offsetMinutes: number;
+  /** Wall-clock in `timezone`, ISO-like without a zone (`YYYY-MM-DDTHH:mm:ss`).
+   *  Display only — always compare with `epochMs`. */
+  local: string;
+}
+
+/** Monotonic milliseconds, immune to device wall-clock changes. Falls back to
+ *  Date.now() only where `performance` is unavailable (then it isn't tamper-
+ *  proof, but that's vanishingly rare on supported runtimes). */
+function monotonicNowMs(): number {
+  const perf = (globalThis as { performance?: { now?: () => number } }).performance;
+  return typeof perf?.now === 'function' ? perf.now() : Date.now();
+}
+
 export class KratyClient {
   private readonly _baseUrl: string;
   private readonly timeoutMs: number;
@@ -170,6 +196,10 @@ export class KratyClient {
   // freshly-constructed client share the same registration so we
   // don't fire two POST /register against the server.
   private _identityInit: Promise<{ externalPlayerId: string; secret: string }> | null = null;
+  // Server-clock anchor (see syncTime): the server epoch captured at sync +
+  // the MONOTONIC reading at that instant, so serverNow() advances immune to
+  // the device wall-clock being changed.
+  private _timeAnchor: { serverMs: number; monoMs: number } | null = null;
 
   constructor(opts: KratyClientOptions) {
     if (!opts.apiKey || typeof opts.apiKey !== 'string') {
@@ -200,19 +230,41 @@ export class KratyClient {
       readEventLeaderboard: async (leaderboardId) => {
         const ext = this._activeExternalPlayerId;
         if (!ext) return null;
-        const params = new URLSearchParams({ includeSelf: 'true', externalId: ext, limit: '1' });
+        // Pull the top rows (not just self) so a finalization can be rendered
+        // straight from the result — each row already carries server-resolved
+        // `avatar` + `isSelf`, so the app doesn't re-fetch or match ids.
+        const params = new URLSearchParams({ includeSelf: 'true', externalId: ext, limit: '50' });
         try {
           const env = await this.request<{
             data: {
               finalized: boolean;
               finalizedReason: FinalizationReason | null;
               self: { rank: number; score: number } | null;
+              entries?: Array<{
+                participantId: string;
+                rank: number;
+                score: number;
+                name?: string | null;
+                kind: 'player' | 'bot';
+                avatar?: string | null;
+                isSelf?: boolean;
+              }>;
             };
           }>('GET', `/sdk/v1/event-leaderboards/${encodeURIComponent(leaderboardId)}?${params.toString()}`);
+          const standings: FinalStanding[] = (env.data.entries ?? []).map((e) => ({
+            participantId: e.participantId,
+            rank: e.rank,
+            score: e.score,
+            name: e.name ?? '',
+            kind: e.kind === 'bot' ? StandingKind.Bot : StandingKind.Player,
+            avatar: e.avatar ?? null,
+            isSelf: e.isSelf ?? false,
+          }));
           return {
             finalized: env.data.finalized,
             reason: env.data.finalizedReason,
             self: env.data.self,
+            standings,
           };
         } catch {
           return null; // unreadable → treat as still-active
@@ -251,6 +303,56 @@ export class KratyClient {
     data: { reason?: string; standings?: FinalizationResult['standings']; eventId?: string },
   ): Promise<void> {
     return this._finalization.onStreamFinalized(leaderboardId, data);
+  }
+
+  // ── Server clock ──────────────────────────────────────────────────
+  // A trustworthy time source: fetch the server's clock so game timers
+  // (event countdowns, etc.) can't be cheated by changing the device clock.
+
+  /**
+   * Fetch the server's current time. `epochMs` (UTC) is the value to compare
+   * against event `endsAt`. Pass `timezone` (an IANA name, e.g.
+   * `'Europe/Lisbon'`) to also receive that zone's wall-clock (`local`) +
+   * `offsetMinutes` for display — comparisons should still use `epochMs`.
+   */
+  async getServerTime(opts?: { timezone?: string }): Promise<ServerTime> {
+    const qs = opts?.timezone ? `?timezone=${encodeURIComponent(opts.timezone)}` : '';
+    const env = await this.request<{ data: ServerTime }>('GET', `/sdk/v1/time${qs}`);
+    return env.data;
+  }
+
+  /**
+   * Anchor a tamper-proof clock: fetch the server time once and pin it to a
+   * MONOTONIC reference (`performance.now()`), so {@link serverNow} keeps
+   * ticking correctly even if the player changes their device clock afterwards.
+   * Call at startup and again on app resume. Network latency introduces at most
+   * a sub-second skew, which is negligible for event timers.
+   */
+  async syncTime(): Promise<void> {
+    const t = await this.getServerTime();
+    this._timeAnchor = { serverMs: t.epochMs, monoMs: monotonicNowMs() };
+  }
+
+  /** True once {@link syncTime} has succeeded at least once. */
+  get isTimeSynced(): boolean {
+    return this._timeAnchor !== null;
+  }
+
+  /**
+   * Current server time as Unix epoch ms (UTC), derived from the last
+   * {@link syncTime} anchor + monotonic elapsed — safe against device-clock
+   * tampering. Throws if {@link syncTime} hasn't run yet.
+   */
+  serverNowMs(): number {
+    if (!this._timeAnchor) {
+      throw new Error('kraty: call syncTime() before serverNow()/serverNowMs()');
+    }
+    return this._timeAnchor.serverMs + (monotonicNowMs() - this._timeAnchor.monoMs);
+  }
+
+  /** {@link serverNowMs} as a `Date`. */
+  serverNow(): Date {
+    return new Date(this.serverNowMs());
   }
 
   // ── Accessors for the SSE leaderboard stream ──────────────────────
