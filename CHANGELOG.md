@@ -4,6 +4,14 @@ All notable changes to `@kraty/sdk` (Kraty TypeScript SDK) live here.
 Follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) +
 [SemVer](https://semver.org/).
 
+## [0.18.1](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.18.0...sdk-client-typescript-v0.18.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **sdk:** finalization result now carries `eventKey` (+ the canonical board ref) on the live SSE path, so `onFinalized` handlers can route on `result.eventKey`; previously only the catch-up path set it, so a stream-delivered result arrived without it.
+
+
 ## [0.18.0](https://github.com/PedroTrincheiras/Kraty/compare/sdk-client-typescript-v0.17.0...sdk-client-typescript-v0.18.0) (2026-07-23)
 
 

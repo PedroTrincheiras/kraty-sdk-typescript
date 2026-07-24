@@ -63,6 +63,12 @@ describe('the SSE path writes the registry (core invariant)', () => {
     // Callback fired exactly once with the SSE reason.
     expect(fired).toHaveLength(1);
     expect(fired[0]!.reason).toBe('session_terminated');
+    // The live SSE frame carries no eventKey; the result must still expose it
+    // (routed from the tracked ref) so callers can `switch (result.eventKey)`.
+    // Regression: previously the live path delivered eventKey: undefined.
+    expect(fired[0]!.eventKey).toBe('daily');
+    // And the standings ("board status at finalization") come through.
+    expect(fired[0]!.standings).toHaveLength(1);
   });
 
   it('a later checkFinalizations does NOT re-fire what the SSE already resolved', async () => {

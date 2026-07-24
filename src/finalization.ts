@@ -225,6 +225,20 @@ export class FinalizationTracker {
       if (!entry || entry.reportedAt) return false; // unknown or already reported
       entry.status = 'finalized';
       entry.reportedAt = new Date().toISOString();
+      // Carry the TRACKED ref onto the result: it holds the eventKey captured at
+      // start() (track(eventLeaderboard(id, eventKey))) plus the canonical board
+      // ref. The live SSE path builds a bare ref (leaderboardId only) and never
+      // sets eventKey, so without this a stream-delivered result has no eventKey
+      // and a caller routing on it (e.g. `switch (result.eventKey)`) can't. The
+      // catch-up path already sets eventKey; doing it here makes both consistent.
+      result.ref = entry.ref;
+      if (
+        !result.eventKey &&
+        entry.ref.kind === MembershipKind.EventLeaderboard &&
+        entry.ref.eventKey
+      ) {
+        result.eventKey = entry.ref.eventKey;
+      }
       await this.deps.store.save(playerId, entries); // persist BEFORE firing
       this.emit(result);
       return true;
